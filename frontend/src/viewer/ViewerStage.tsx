@@ -1,19 +1,28 @@
 import { useEffect, useRef, useState } from "react";
-import { BuildingViewer, ViewerStats, ViewerStatus } from "./BuildingViewer";
+import {
+  BuildingViewer,
+  ENVIRONMENTS,
+  EnvironmentPreset,
+  VIEW_AXES,
+  ViewerStats,
+  ViewerStatus,
+} from "./BuildingViewer";
 
 interface Props {
   url: string | null;
 }
 
-/** 3D 预览舞台：包含画布、视角工具条与模型统计浮层。 */
+/** 3D 预览舞台：包含画布、视角与环境工具条、模型统计浮层。 */
 export function ViewerStage({ url }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<BuildingViewer | null>(null);
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [message, setMessage] = useState<string>("");
   const [stats, setStats] = useState<ViewerStats | null>(null);
-  const [autoRotate, setAutoRotate] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
   const [wireframe, setWireframe] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [environment, setEnvironment] = useState<EnvironmentPreset>("midday");
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -38,35 +47,79 @@ export function ViewerStage({ url }: Props) {
   }, [url]);
 
   useEffect(() => {
-    viewerRef.current?.setAutoRotate(autoRotate);
-  }, [autoRotate]);
+    viewerRef.current?.setAutoRotate(autoRotate && !locked);
+  }, [autoRotate, locked]);
 
   useEffect(() => {
     viewerRef.current?.setWireframe(wireframe);
   }, [wireframe]);
+
+  useEffect(() => {
+    viewerRef.current?.setEnvironment(environment);
+  }, [environment]);
+
+  useEffect(() => {
+    viewerRef.current?.setLocked(locked);
+  }, [locked]);
 
   return (
     <section className="stage">
       <div className="stage-canvas" ref={hostRef} />
 
       <div className="stage-toolbar">
-        <button
-          type="button"
-          className={`chip-btn ${autoRotate ? "active" : ""}`}
-          onClick={() => setAutoRotate((value) => !value)}
-        >
-          自动旋转
-        </button>
-        <button
-          type="button"
-          className={`chip-btn ${wireframe ? "active" : ""}`}
-          onClick={() => setWireframe((value) => !value)}
-        >
-          线框
-        </button>
-        <button type="button" className="chip-btn" onClick={() => viewerRef.current?.resetView()}>
-          重置视角
-        </button>
+        <div className="toolbar-row">
+          <span className="toolbar-label">视角</span>
+          {VIEW_AXES.map((axis) => (
+            <button
+              key={axis.id}
+              type="button"
+              className="chip-btn"
+              onClick={() => viewerRef.current?.setView(axis.id)}
+            >
+              {axis.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`chip-btn ${locked ? "active" : ""}`}
+            onClick={() => setLocked((value) => !value)}
+          >
+            {locked ? "已锁定" : "锁定视角"}
+          </button>
+        </div>
+
+        <div className="toolbar-row">
+          <span className="toolbar-label">环境</span>
+          <select
+            className="chip-select"
+            value={environment}
+            onChange={(event) => setEnvironment(event.target.value as EnvironmentPreset)}
+          >
+            {ENVIRONMENTS.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`chip-btn ${autoRotate ? "active" : ""}`}
+            disabled={locked}
+            onClick={() => setAutoRotate((value) => !value)}
+          >
+            自动旋转
+          </button>
+          <button
+            type="button"
+            className={`chip-btn ${wireframe ? "active" : ""}`}
+            onClick={() => setWireframe((value) => !value)}
+          >
+            线框
+          </button>
+          <button type="button" className="chip-btn" onClick={() => viewerRef.current?.resetView()}>
+            重置视角
+          </button>
+        </div>
       </div>
 
       {stats && status === "ready" && (

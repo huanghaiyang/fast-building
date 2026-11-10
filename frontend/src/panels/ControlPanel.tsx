@@ -65,7 +65,6 @@ export function ControlPanel(props: Props) {
     onOpenUpload,
   } = props;
 
-  const selectedSet = textureSets.find((item) => item.id === form.textureset);
   const stats = job?.result?.stats;
   const progress = Math.round((job?.progress ?? 0) * 100);
   const running = job?.status === "running" || job?.status === "queued";
@@ -190,24 +189,26 @@ export function ControlPanel(props: Props) {
               导入 +
             </button>
           </span>
-          <div className="texture-row">
-            <select
-              value={form.textureset}
-              onChange={(event) => onChange({ textureset: event.target.value })}
-            >
-              {textureSets.map((set) => (
-                <option key={set.id} value={set.id}>
-                  {set.display_name ?? set.name} · {set.tile_m}m
-                </option>
-              ))}
-            </select>
-            <div className="texture-thumb">
-              {selectedSet?.preview ? (
-                <img src={selectedSet.preview} alt={selectedSet.name} />
-              ) : (
-                <span />
-              )}
-            </div>
+          <div className="texture-grid">
+            {textureSets.map((set) => {
+              const label = set.display_name ?? set.name;
+              const active = set.id === form.textureset;
+              return (
+                <button
+                  key={set.id}
+                  type="button"
+                  className={`texture-card ${active ? "active" : ""}`}
+                  title={`${label} · 平铺 ${set.tile_m}m · ${set.resolution}px`}
+                  onClick={() => onChange({ textureset: set.id })}
+                >
+                  <span className="texture-card-image">
+                    {set.preview ? <img src={set.preview} alt={label} loading="lazy" /> : <i />}
+                  </span>
+                  <span className="texture-card-name">{label}</span>
+                  <span className="texture-card-meta">{set.tile_m} m</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
