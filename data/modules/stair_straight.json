@@ -1,0 +1,16 @@
+{
+  "id": "stair_straight",
+  "name": "直跑楼梯",
+  "version": 1,
+  "category": "stair",
+  "description": "一层通往二层的直跑楼梯，踏步数与踢面高度自动计算。",
+  "tags": ["interior", "circulation"],
+  "bbox": { "min": [0, 0, 0], "max": [1.2, 4.2, 2.8] },
+  "geom": { "type": "straight_stair", "width": 1.2, "rise": 0.18, "going": 0.27 },
+  "sockets": [
+    { "name": "bottom", "type": "floor_down", "pos": [0.6, 0, 0], "normal": [0, 0, -1], "up": [0, 1, 0] }
+  ],
+  "slots": [{ "name": "trim", "texset": "concrete_gray", "tile_m": 2.5 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_stair_straight" }
+}

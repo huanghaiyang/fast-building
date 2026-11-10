@@ -1,0 +1,22 @@
+{
+  "id": "opening_arch_window",
+  "name": "尖拱窗洞",
+  "version": 1,
+  "category": "opening",
+  "description": "等边尖拱窗洞：拱头矢高约为 0.866 × 跨度，墙体用 6 条矩形带逼近拱形切割，玻璃按圆弧轮廓成面。",
+  "tags": ["medieval", "facade", "opening", "arch"],
+  "bbox": { "min": [0, 0, 0], "max": [1.1, 0.24, 2.2] },
+  "geom": {
+    "type": "rect_opening",
+    "arch": "equilateral",
+    "arch_rise_ratio": 0.866,
+    "width": 1.1,
+    "height": 2.2,
+    "sill": 0.85,
+    "strips": 6
+  },
+  "sockets": [],
+  "slots": [{ "name": "glass", "texset": null, "tile_m": 1.0 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_opening_arch_window" }
+}

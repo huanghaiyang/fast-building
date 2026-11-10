@@ -1,0 +1,15 @@
+{
+  "id": "modern_villa",
+  "name": "现代住宅",
+  "description": "方整体量、横向长窗、坡屋顶带挑檐，适合独栋别墅与住宅展示。",
+  "window_w": 1.6,
+  "window_h": 1.7,
+  "sill_h": 0.85,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": true,
+  "palette": {
+    "trim": "concrete_gray",
+    "roof": "roof_tile"
+  }
+}

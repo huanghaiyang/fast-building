@@ -1,0 +1,23 @@
+{
+  "id": "medieval_stone",
+  "name": "中世纪石堡",
+  "description": "石块砌体、窄尖拱窗与垛口女儿墙，适合城堡与要塞体量。",
+  "window_w": 0.9,
+  "window_h": 1.7,
+  "sill_h": 1.1,
+  "windows_per_bay": 2,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "trim": "stone_ashlar",
+    "roof": "roof_shingle"
+  },
+  "medieval": {
+    "timber_frame": false,
+    "arch_openings": true,
+    "jetty": false,
+    "crenellation": true,
+    "dormers": 0,
+    "chimney": true
+  }
+}

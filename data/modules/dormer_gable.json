@@ -1,0 +1,26 @@
+{
+  "id": "dormer_gable",
+  "name": "老虎窗",
+  "version": 1,
+  "category": "roof",
+  "description": "骑在主坡上的小双坡老虎窗，含窗体、正面玻璃与小屋顶；脊线平行于主屋脊，左右两坡对称布置。",
+  "tags": ["medieval", "roof", "window"],
+  "bbox": { "min": [-1.5, -0.53, 0], "max": [0.02, 0.53, 1.95] },
+  "geom": {
+    "type": "gable_dormer",
+    "body_w": 1.05,
+    "body_h": 1.35,
+    "body_d": 1.5,
+    "cap_ratio": 0.42
+  },
+  "sockets": [
+    { "name": "seat", "type": "roof_seat", "pos": [0, 0, 0], "normal": [1, 0, 0], "up": [0, 0, 1] }
+  ],
+  "slots": [
+    { "name": "facade", "texset": "plaster_cream", "tile_m": 2.0 },
+    { "name": "roof", "texset": "roof_shingle", "tile_m": 2.0 },
+    { "name": "glass", "texset": null, "tile_m": 1.0 }
+  ],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_dormer_gable" }
+}

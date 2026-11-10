@@ -1,0 +1,28 @@
+{
+  "id": "wall_basic",
+  "name": "基础外墙板",
+  "version": 1,
+  "category": "wall",
+  "description": "按开间参数化生成的墙板，支持任意矩形门窗洞，洞口侧壁自动生成。",
+  "tags": ["facade", "exterior", "parametric"],
+  "bbox": { "min": [0, 0, 0], "max": [4, 0.24, 2.8] },
+  "geom": {
+    "type": "wall_panel",
+    "default_width": 4,
+    "default_height": 2.8,
+    "thickness": 0.24,
+    "openings": "auto"
+  },
+  "sockets": [
+    { "name": "end_left", "type": "wall_end", "pos": [0, 0.12, 0], "normal": [-1, 0, 0], "up": [0, 0, 1] },
+    { "name": "end_right", "type": "wall_end", "pos": [4, 0.12, 0], "normal": [1, 0, 0], "up": [0, 0, 1] },
+    { "name": "face_out", "type": "attach", "pos": [2, 0, 1.4], "normal": [0, -1, 0], "up": [0, 0, 1] }
+  ],
+  "slots": [
+    { "name": "facade", "texset": "brick_red", "tile_m": 2.0 },
+    { "name": "trim", "texset": "concrete_gray", "tile_m": 2.5 },
+    { "name": "glass", "texset": null, "tile_m": 1.0 }
+  ],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_wall_basic" }
+}

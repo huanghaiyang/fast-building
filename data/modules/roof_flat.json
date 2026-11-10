@@ -1,0 +1,16 @@
+{
+  "id": "roof_flat",
+  "name": "平屋顶",
+  "version": 1,
+  "category": "roof",
+  "description": "带挑檐的平屋面，适合办公、商业与现代住宅。",
+  "tags": ["exterior", "roof"],
+  "bbox": { "min": [-0.45, -0.45, 0], "max": [12.45, 9.45, 0.28] },
+  "geom": { "type": "flat", "overhang": 0.45, "thickness": 0.28 },
+  "sockets": [
+    { "name": "base", "type": "roof_base", "pos": [6, 4.5, 0], "normal": [0, 0, -1], "up": [0, 1, 0] }
+  ],
+  "slots": [{ "name": "roof", "texset": "concrete_gray", "tile_m": 2.5 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_roof_flat" }
+}

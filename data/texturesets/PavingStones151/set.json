@@ -1,0 +1,16 @@
+{
+  "name": "PavingStones151",
+  "display_name": "Paving Stones 151（铺地石）",
+  "tile_m": 3.0,
+  "resolution": 512,
+  "license": "CC0 1.0 Universal（AmbientCG 公共领域素材，可免费商用）",
+  "source": "https://ambientcg.com/view?id=PavingStones151",
+  "channels": {
+    "basecolor": "basecolor.png",
+    "normal": "normal.png",
+    "orm": "orm.png",
+    "height": null
+  },
+  "created_at": "2026-11-10 18:07:42",
+  "category": "PavingStones"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "medieval_cottage",
+  "name": "中世纪村舍",
+  "description": "低矮小开间、木筋填充墙与木瓦坡顶，带老虎窗与砖石烟囱。",
+  "window_w": 1.0,
+  "window_h": 1.25,
+  "sill_h": 0.95,
+  "windows_per_bay": 2,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "trim": "timber_oak",
+    "roof": "roof_shingle"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 1,
+    "chimney": true
+  }
+}

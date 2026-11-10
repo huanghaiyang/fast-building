@@ -1,0 +1,22 @@
+{
+  "id": "opening_arch_door",
+  "name": "尖拱门洞",
+  "version": 1,
+  "category": "opening",
+  "description": "一层入口的尖拱门洞，门扇面片沿拱形轮廓生成，与尖拱窗共用拱头分解算法。",
+  "tags": ["medieval", "facade", "opening", "arch", "door"],
+  "bbox": { "min": [0, 0, 0], "max": [1.3, 0.24, 2.6] },
+  "geom": {
+    "type": "rect_opening",
+    "arch": "equilateral",
+    "arch_rise_ratio": 0.866,
+    "width": 1.3,
+    "height": 2.6,
+    "sill": 0.0,
+    "strips": 6
+  },
+  "sockets": [],
+  "slots": [{ "name": "door", "texset": null, "tile_m": 1.0 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_opening_arch_door" }
+}

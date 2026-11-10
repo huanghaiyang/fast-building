@@ -1,0 +1,15 @@
+{
+  "id": "townhouse",
+  "name": "联排住宅",
+  "description": "窄开间、多层叠加，适合联排与街区快速铺排。",
+  "window_w": 1.2,
+  "window_h": 1.5,
+  "sill_h": 0.9,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": true,
+  "palette": {
+    "trim": "concrete_gray",
+    "roof": "roof_tile"
+  }
+}

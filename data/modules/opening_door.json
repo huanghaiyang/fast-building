@@ -1,0 +1,14 @@
+{
+  "id": "opening_door",
+  "name": "入户门洞",
+  "version": 1,
+  "category": "opening",
+  "description": "一层正立面中开间的入户门洞，含门扇面，可由风格预设关闭。",
+  "tags": ["facade", "opening", "entrance"],
+  "bbox": { "min": [0, 0, 0], "max": [1.05, 0.24, 2.2] },
+  "geom": { "type": "rect_opening", "width": 1.05, "height": 2.2, "sill": 0 },
+  "sockets": [],
+  "slots": [{ "name": "door", "texset": null, "tile_m": 2.0 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_opening_door" }
+}

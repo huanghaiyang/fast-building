@@ -1,0 +1,24 @@
+{
+  "id": "medieval_castle_pbr",
+  "name": "中世纪石堡·实拍材质",
+  "description": "与石堡同构型，改用 CC0 实拍天然石砌与瓦面贴图，垛口与尖拱窗保留。",
+  "window_w": 0.9,
+  "window_h": 1.7,
+  "sill_h": 1.1,
+  "windows_per_bay": 2,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "trim": "Rock064",
+    "roof": "RoofingTiles014A",
+    "door": "Planks040"
+  },
+  "medieval": {
+    "timber_frame": false,
+    "arch_openings": true,
+    "jetty": false,
+    "crenellation": true,
+    "dormers": 0,
+    "chimney": true
+  }
+}

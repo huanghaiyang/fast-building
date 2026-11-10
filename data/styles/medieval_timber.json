@@ -1,0 +1,23 @@
+{
+  "id": "medieval_timber",
+  "name": "中世纪木筋屋",
+  "description": "外露橡木构架配灰泥填充墙，上层悬挑、尖拱门窗与陡坡木瓦屋面。",
+  "window_w": 1.1,
+  "window_h": 1.5,
+  "sill_h": 0.85,
+  "windows_per_bay": 2,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "trim": "timber_oak",
+    "roof": "roof_shingle"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": true,
+    "jetty": true,
+    "crenellation": false,
+    "dormers": 1,
+    "chimney": true
+  }
+}

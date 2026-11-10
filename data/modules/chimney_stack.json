@@ -1,0 +1,16 @@
+{
+  "id": "chimney_stack",
+  "name": "砖石烟囱",
+  "version": 1,
+  "category": "roof",
+  "description": "穿透屋面的砖石烟囱，含压顶；底部埋入屋面 1.1 m，露出高度约 1.5 m。",
+  "tags": ["medieval", "roof", "chimney"],
+  "bbox": { "min": [-0.45, -0.31, 0], "max": [0.45, 0.31, 2.6] },
+  "geom": { "type": "chimney_stack", "width": 0.9, "depth": 0.62, "height": 2.6, "cap": 0.14 },
+  "sockets": [
+    { "name": "base", "type": "roof_seat", "pos": [0, 0, 0], "normal": [0, 0, -1], "up": [0, 1, 0] }
+  ],
+  "slots": [{ "name": "trim", "texset": "stone_ashlar", "tile_m": 2.5 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_chimney_stack" }
+}

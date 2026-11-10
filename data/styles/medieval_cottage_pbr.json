@@ -1,0 +1,24 @@
+{
+  "id": "medieval_cottage_pbr",
+  "name": "中世纪村舍·实拍材质",
+  "description": "低矮村舍构型，配 CC0 实拍木梁、木瓦与木板门贴图，带老虎窗与烟囱。",
+  "window_w": 1.0,
+  "window_h": 1.25,
+  "sill_h": 0.95,
+  "windows_per_bay": 2,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "trim": "Wood094",
+    "roof": "RoofingTiles012A",
+    "door": "Planks023A"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 1,
+    "chimney": true
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "balcony_basic",
+  "name": "悬挑阳台",
+  "version": 1,
+  "category": "balcony",
+  "description": "二层及以上正立面的悬挑阳台，含楼板与三面栏杆。",
+  "tags": ["facade", "outdoor"],
+  "bbox": { "min": [0, -1.15, 0], "max": [4.5, 0, 1.16] },
+  "geom": { "type": "balcony", "depth": 1.15, "rail_height": 1.0 },
+  "sockets": [
+    { "name": "attach", "type": "attach", "pos": [2.25, 0, 0], "normal": [0, 1, 0], "up": [0, 0, 1] }
+  ],
+  "slots": [{ "name": "trim", "texset": "concrete_gray", "tile_m": 2.5 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_balcony_basic" }
+}

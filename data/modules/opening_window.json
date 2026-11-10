@@ -1,0 +1,14 @@
+{
+  "id": "opening_window",
+  "name": "标准窗洞",
+  "version": 1,
+  "category": "opening",
+  "description": "墙板上的矩形窗洞，自动生成洞口侧壁与玻璃面；尺寸随风格预设变化。",
+  "tags": ["facade", "opening"],
+  "bbox": { "min": [0, 0, 0], "max": [1.4, 0.24, 1.6] },
+  "geom": { "type": "rect_opening", "width": 1.4, "height": 1.6, "sill": 0.9 },
+  "sockets": [],
+  "slots": [{ "name": "glass", "texset": null, "tile_m": 1.0 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_opening_window" }
+}

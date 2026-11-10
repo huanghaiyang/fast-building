@@ -1,0 +1,17 @@
+{
+  "id": "wall_timber_frame",
+  "name": "木筋墙构架",
+  "version": 1,
+  "category": "wall",
+  "description": "贴附在墙体外侧的外露木构架：角柱、洞口边柱、上下横梁与 45° 斜撑，按开间与洞口自动排布。",
+  "tags": ["medieval", "facade", "timber"],
+  "bbox": { "min": [0, -0.06, 0], "max": [4.0, 0.02, 2.8] },
+  "geom": { "type": "timber_frame", "beam_w": 0.15, "proud": 0.06, "brace_w": 0.13 },
+  "sockets": [
+    { "name": "base_left", "type": "wall_base", "pos": [0, 0, 0], "normal": [0, -1, 0], "up": [0, 0, 1] },
+    { "name": "base_right", "type": "wall_base", "pos": [4.0, 0, 0], "normal": [0, -1, 0], "up": [0, 0, 1] }
+  ],
+  "slots": [{ "name": "trim", "texset": "timber_oak", "tile_m": 1.5 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }, { "level": 1, "ratio": 0.5 }],
+  "source": { "blend": "generated", "collection": "MOD_wall_timber_frame" }
+}

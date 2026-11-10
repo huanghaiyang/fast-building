@@ -1,0 +1,15 @@
+{
+  "id": "office",
+  "name": "办公建筑",
+  "description": "大开间、规则窗格、平屋顶，适合办公与商业体块。",
+  "window_w": 1.8,
+  "window_h": 1.8,
+  "sill_h": 0.8,
+  "windows_per_bay": 1,
+  "door": false,
+  "balcony": false,
+  "palette": {
+    "trim": "concrete_gray",
+    "roof": "concrete_gray"
+  }
+}
