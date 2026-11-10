@@ -271,33 +271,67 @@ def timber() -> dict:
 
 
 def thatch_straw() -> dict:
-    """金色茅草：竖向草茎纹理 + 水平压层阴影，适合厚茅草屋面与披檐。"""
+    """金色茅草：宽度随机的竖草 + 大尺度色块 + 低对比压层。"""
     yy, xx = np.mgrid[0:SIZE, 0:SIZE].astype(np.float64)
     rng = np.random.default_rng(101)
-    # 每一列的草茎亮度略有差异，形成细密的竖向纤维感
-    strand = rng.uniform(-1.0, 1.0, SIZE)[None, :]
-    fibre = (
-        np.sin(xx / 1.7 + _noise(102, 1.4)) * 0.5
-        + np.sin(xx / 4.3 + 1.1) * 0.3
+
+    # 草茎：随机宽度的竖条并做轻微平滑，避免出现等距的规则条纹
+    widths = rng.integers(1, 4, SIZE // 2)
+    cols = np.repeat(rng.normal(0.0, 1.0, SIZE // 2), widths)[:SIZE]
+    if cols.size < SIZE:
+        cols = np.pad(cols, (0, SIZE - cols.size), mode="wrap")
+    padded = np.concatenate([cols[-4:], cols, cols[:4]])
+    cols = np.convolve(padded, np.ones(5) / 5.0, mode="same")[4:-4]
+    cols = (cols - cols.mean()) / (cols.std() + 1e-6)
+    fibre = cols[None, :] * 0.62 + np.sin(xx / 13.0 + 1.1) * 0.18
+
+    # 草束：更宽的成把草，让近景能读出「一束一束」的草
+    coarse_cols = np.repeat(rng.normal(0.0, 1.0, 48), SIZE // 48 + 1)[:SIZE]
+    coarse_cols = np.convolve(
+        np.concatenate([coarse_cols[-10:], coarse_cols, coarse_cols[:10]]),
+        np.ones(21) / 21.0,
+        mode="same",
+    )[10:-10]
+    coarse = (coarse_cols - coarse_cols.mean()) / (coarse_cols.std() + 1e-6)
+
+    # 大尺度色块：多组随机频率正弦叠加，既有自然团块感又能无缝平铺
+    clump = np.zeros((SIZE, SIZE))
+    for _ in range(56):
+        kx = int(rng.integers(1, 8))
+        ky = int(rng.integers(1, 8))
+        amp = rng.uniform(0.6, 2.2) / (kx + ky)
+        phase = rng.uniform(0.0, 2.0 * np.pi)
+        clump += amp * np.sin(2.0 * np.pi * (kx * xx + ky * yy) / SIZE + phase)
+    clump *= 3.0
+
+    # 压层：每层约 0.4 m，边界用窄高斯压暗，对比刻意压低
+    drift = np.sin(2.0 * np.pi * xx * 2 / SIZE) * 8.0 + np.sin(
+        2.0 * np.pi * xx * 5 / SIZE + 1.3
+    ) * 4.0
+    layer = ((yy + drift) % 168.0) / 168.0
+    layer_shadow = 1.0 - 0.10 * np.exp(-layer * 168.0 / 16.0)
+
+    value = (
+        226.0 + fibre * 22.0 + coarse[None, :] * 9.0 + clump + _noise(103, 3.0)
+    ) * layer_shadow
+    warm = 0.86 + clump / 300.0
+    base = np.stack([value, value * warm, value * (warm - 0.38)], axis=-1)
+
+    height = (
+        (0.45 + 0.55 * layer)
+        + fibre * 0.07
+        + coarse[None, :] * 0.03
+        + clump / 500.0
+        + _noise(104, 0.02)
     )
-    # 压层线做轻微起伏，避免出现完全水平的规则条纹；每层约 0.22 m（tile 1.2 m）
-    drift = np.sin(xx / 23.0) * 5.0 + _noise(106, 2.0)
-    layer = ((yy + drift) % 96.0) / 96.0
-    layer_shadow = np.where(layer < 0.18, 0.70 + 0.30 * (layer / 0.18), 1.0)
-    tip = np.where((layer > 0.8) & (strand > 0.5), 1.12, 1.0)
-
-    value = (214.0 + strand * 15.0 + fibre * 9.0 + _noise(103, 5.0)) * layer_shadow * tip
-    base = np.stack([value, value * 0.84, value * 0.43], axis=-1)
-
-    height = (0.5 + 0.5 * layer) + fibre * 0.05 + _noise(104, 0.02)
     roughness = np.minimum(0.94 + _noise(105, 0.02), 1.0)
-    ao = np.clip(layer_shadow, 0.55, 1.0) * np.where((yy % 96) < 8, 0.72, 1.0)
+    ao = np.clip(layer_shadow, 0.78, 1.0)
     metallic = np.zeros_like(height)
 
     return _save_set(
         "thatch_straw",
         "金色茅草",
-        tile_m=1.2,
+        tile_m=1.5,
         basecolor=base,
         height=height,
         roughness=roughness,
@@ -310,16 +344,18 @@ def log_bark() -> dict:
     """原木树皮：纹理沿 U 方向拉长，UV 的 U 轴对齐圆木轴向。"""
     yy, xx = np.mgrid[0:SIZE, 0:SIZE].astype(np.float64)
     grain = (
-        np.sin(yy / 5.0 + np.sin(xx / 41.0) * 2.1) * 0.5
-        + np.sin(yy / 13.0 + 0.6) * 0.3
+        np.sin(yy / 7.5 + np.sin(xx / 47.0) * 2.4) * 0.5
+        + np.sin(yy / 19.0 + 0.6) * 0.3
     )
-    crack = (np.abs(np.sin(xx / 97.0 + np.sin(yy / 21.0) * 2.0)) > 0.995).astype(float)
-    value = 118.0 + grain * 18.0 + _noise(111, 4.0) - crack * 34.0
-    base = np.stack([value, value * 0.68, value * 0.46], axis=-1)
+    knot = np.sin(xx / 83.0 + np.sin(yy / 37.0) * 1.8)
+    # 纵向裂缝沿原木轴向（与木纹同向）
+    crack = (np.abs(np.sin(yy / 57.0 + np.sin(xx / 29.0) * 1.3)) > 0.986).astype(float)
+    value = 118.0 + grain * 24.0 + knot * 7.0 + _noise(111, 5.0) - crack * 34.0
+    base = np.stack([value, value * 0.84, value * 0.72], axis=-1)
 
-    height = 1.0 + grain * 0.08 - crack * 0.35 + _noise(112, 0.02)
-    roughness = 0.85 + _noise(113, 0.03)
-    ao = 0.95 - crack * 0.3 + _noise(114, 0.01)
+    height = 1.0 + grain * 0.09 - crack * 0.34 + _noise(112, 0.02)
+    roughness = 0.86 + _noise(113, 0.03)
+    ao = 0.93 - crack * 0.28 + _noise(114, 0.01)
     metallic = np.zeros_like(height)
 
     return _save_set(
@@ -342,7 +378,7 @@ def stone_rubble() -> dict:
     rng = np.random.default_rng(121)
     jx = rng.uniform(0.12, 0.88, (n, n)) * cell
     jy = rng.uniform(0.12, 0.88, (n, n)) * cell
-    tint = rng.uniform(-18.0, 18.0, (n, n))
+    tint = rng.uniform(-9.0, 9.0, (n, n))
 
     gx = (xx // cell).astype(np.int64)
     gy = (yy // cell).astype(np.int64)
@@ -371,13 +407,16 @@ def stone_rubble() -> dict:
     is_stone = edge > 2.6
     dome = np.clip(edge / 22.0, 0.0, 1.0)
 
-    value = 128.0 + tint_map + _noise(123, 6.0) + dome * 26.0
+    value = 118.0 + tint_map + _noise(123, 6.0) + dome * 16.0
     base = np.stack([value, value * 0.985, value * 0.95], axis=-1)
-    base[~is_stone] = np.array([88.0, 86.0, 81.0]) + _noise(124, 5.0)[~is_stone][:, None]
+    base[~is_stone] = np.array([92.0, 90.0, 85.0]) + _noise(124, 4.0)[~is_stone][:, None]
+    # 苔藓与雨渍：低频色差，避免整面石头过于均匀
+    dirt = (np.sin(xx / 197.0 + yy / 151.0) * 0.5 + 0.5) * 14.0
+    base[..., 1] += np.where(is_stone, dirt * 0.55, dirt * 0.25)
 
     height = np.where(is_stone, 0.32 + 0.68 * dome, 0.16) + _noise(125, 0.02)
     roughness = np.where(is_stone, 0.86, 0.94) + _noise(126, 0.02)
-    ao = np.where(is_stone, 0.7 + 0.3 * dome, 0.42)
+    ao = np.where(is_stone, 0.72 + 0.28 * dome, 0.55)
     metallic = np.zeros_like(height)
 
     return _save_set(

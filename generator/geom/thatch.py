@@ -2,8 +2,10 @@
 
 与瓦屋顶的三角棱柱不同，茅草屋顶强调「厚」与「大出檐」：
 - 坡面是有竖向厚度的实心棱柱，檐口加半圆压边，形成圆润的草边；
-- 山墙三角面用茅草封满（真实茅草屋常见做法）；
-- 屋脊压一根深色原木脊梁，两端略微出挑。
+- 坡面 UV 的 V 轴严格顺坡（从屋脊垂到檐口），草茎方向才正确；
+- 山墙三角面略微内凹，四周由坡面端封边包住，形成裁切草边的厚度；
+- 两侧沿坡向加深色博风板，遮住山墙与坡面的接缝；
+- 屋脊压一根半埋的深色原木脊梁，两端略微出挑。
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ def add_slope(
     slot: str = "thatch",
 ) -> None:
     """添加一个带竖向厚度的坡面棱柱（檐口在 x_eave，屋脊在 x_ridge）。"""
+    tile = max(builder.tiles.get(slot, 1.2), 0.05)
+    slope_len = math.hypot(x_ridge - x_eave, rise)
     z_eave_top = z_eave + thickness
     z_ridge_top = z_eave + thickness + rise
     z_ridge_bot = z_eave + rise
@@ -38,11 +42,35 @@ def add_slope(
     rb0 = (x_ridge, y0, z_ridge_bot)
     rb1 = (x_ridge, y1, z_ridge_bot)
 
-    builder.add_face([et0, rt0, rt1, et1], slot)  # 上表面
-    builder.add_face([eb0, eb1, rb1, rb0], slot)  # 下表面
-    builder.add_face([eb0, eb1, et1, et0], slot)  # 檐口立面
-    builder.add_face([eb0, et0, rt0, rb0], slot)  # 山墙端封边
-    builder.add_face([eb1, rb1, rt1, et1], slot)
+    u0, u1 = y0 / tile, y1 / tile
+    v_top, v_eave = slope_len / tile, z_eave / tile
+    t = thickness / tile
+
+    # 上表面：U 沿檐口方向，V 顺坡（草茎从脊部垂向檐口）
+    builder.add_face(
+        [et0, rt0, rt1, et1], slot, uvs=[(u0, 0.0), (u0, v_top), (u1, v_top), (u1, 0.0)]
+    )
+    # 下表面
+    builder.add_face(
+        [eb0, eb1, rb1, rb0], slot, uvs=[(u0, 0.0), (u1, 0.0), (u1, v_top), (u0, v_top)]
+    )
+    # 檐口立面
+    builder.add_face(
+        [eb0, eb1, et1, et0],
+        slot,
+        uvs=[(u0, v_eave), (u1, v_eave), (u1, v_eave + t), (u0, v_eave + t)],
+    )
+    # 山墙端封边（草层厚度方向的裁切面）
+    builder.add_face(
+        [eb0, et0, rt0, rb0],
+        slot,
+        uvs=[(0.0, 0.0), (0.0, t), (v_top, t), (v_top, 0.0)],
+    )
+    builder.add_face(
+        [eb1, rb1, rt1, et1],
+        slot,
+        uvs=[(0.0, 0.0), (v_top, 0.0), (v_top, t), (0.0, t)],
+    )
     # 脊部不封口：两坡在此共线，补面会与对侧坡面重合，形成重复面
 
 
@@ -113,7 +141,7 @@ def add_cylinder_y(
     slot: str = "thatch",
     segments: int = 8,
 ) -> None:
-    """沿 Y 的半圆压边（檐口、门廊檐口用），UV 的木纹/草纹沿 Y 展开。"""
+    """沿 Y 的半圆压边（檐口、门廊檐口用），UV 的草纹沿 Y 展开。"""
     if y1 - y0 < 0.02:
         return
     tile = builder.tiles.get(slot, 2.0)
@@ -144,6 +172,80 @@ def add_cylinder_y(
         builder.add_face([(x_center + x, y, z_center + z) for x, z in ring], slot)
 
 
+def _rake_board(
+    builder: MeshBuilder,
+    x_eave: float,
+    z_eave: float,
+    x_ridge: float,
+    z_ridge: float,
+    y_a: float,
+    y_b: float,
+    board_w: float,
+    slot: str = "trim",
+) -> None:
+    """沿坡向的博风板：在 XZ 平面内偏屋脊方向一条板，沿 Y 拉出厚度。"""
+    dx, dz = x_ridge - x_eave, z_ridge - z_eave
+    length = math.hypot(dx, dz) or 1.0
+    # 指向屋面内侧：X 朝屋脊、Z 向下，板条正好压在坡面边缘下方
+    sx = 1.0 if dx >= 0.0 else -1.0
+    nx, nz = sx * abs(dz) / length, -abs(dx) / length
+
+    def pts(y: float) -> list[tuple[float, float, float]]:
+        return [
+            (x_eave, y, z_eave),
+            (x_ridge, y, z_ridge),
+            (x_ridge + nx * board_w, y, z_ridge + nz * board_w),
+            (x_eave + nx * board_w, y, z_eave + nz * board_w),
+        ]
+
+    a = pts(y_a)
+    b = pts(y_b)
+    builder.add_face(a, slot)  # 正面
+    builder.add_face([b[3], b[2], b[1], b[0]], slot)  # 背面
+    builder.add_face([a[0], a[1], b[1], b[0]], slot)  # 外沿
+    builder.add_face([a[3], b[3], b[2], a[2]], slot)  # 内沿
+    builder.add_face([a[0], b[0], b[3], a[3]], slot)  # 檐口端
+    builder.add_face([a[1], a[2], b[2], b[1]], slot)  # 脊端
+
+
+def _gable_window(
+    builder: MeshBuilder,
+    x_center: float,
+    z_center: float,
+    width: float,
+    height: float,
+    y_face: float,
+    tiles: dict[str, float],
+) -> None:
+    """山墙小草窗：深色木框 + 内凹玻璃。"""
+    frame = 0.07
+    y_out = y_face - 0.07
+    y_in = y_face + 0.02
+    left = x_center - width * 0.5
+    right = x_center + width * 0.5
+    bottom = z_center - height * 0.5
+    top = z_center + height * 0.5
+    builder.add_box((left - frame, y_out, bottom - frame), (right + frame, y_in, bottom), "trim")
+    builder.add_box((left - frame, y_out, top), (right + frame, y_in, top + frame), "trim")
+    builder.add_box((left - frame, y_out, bottom), (left, y_in, top), "trim")
+    builder.add_box((right, y_out, bottom), (right + frame, y_in, top), "trim")
+    # 中竖梃
+    builder.add_box(
+        (x_center - 0.03, y_out + 0.01, bottom),
+        (x_center + 0.03, y_in, top),
+        "trim",
+    )
+    builder.add_face(
+        [
+            (left, y_out + 0.04, bottom),
+            (right, y_out + 0.04, bottom),
+            (right, y_out + 0.04, top),
+            (left, y_out + 0.04, top),
+        ],
+        "glass",
+    )
+
+
 def build_thatch_roof(
     width: float,
     depth: float,
@@ -153,26 +255,33 @@ def build_thatch_roof(
     thickness: float,
     tiles: dict[str, float],
     gable_slot: str = "thatch",
+    gable_window: tuple[float, float, float, float] | None = None,
+    gable_overhang: float = 0.18,
 ) -> MeshBuilder:
-    """厚茅草双坡屋顶；局部坐标与 build_gable_roof 一致。"""
+    """厚茅草双坡屋顶；局部坐标与 build_gable_roof 一致。
+
+    gable_overhang 是山墙方向的挑出量，刻意做得比檐口 overhang 小：
+    山墙草面贴近墙体，才不会像一块悬空的草板。
+    """
     builder = MeshBuilder(tiles)
     half = width * 0.5 + overhang
     cx = width * 0.5
     x_left = cx - half
     x_right = cx + half
-    y0 = -overhang
-    y1 = depth + overhang
+    y0 = -gable_overhang
+    y1 = depth + gable_overhang
     rise = math.tan(math.radians(pitch_deg)) * half
 
     add_slope(builder, x_left, cx, y0, y1, z, rise, thickness, "thatch")
     add_slope(builder, x_right, cx, y0, y1, z, rise, thickness, "thatch")
 
-    # 山墙三角（从檐口下缘一直填到屋脊），让屋面从两端看是整块茅草
+    # 山墙三角略微内凹，让坡面端封边形成一圈草层厚度的边
     z_top = z + thickness
     z_ridge = z_top + rise
-    # 略微外移，避免与坡面端封边共面产生 z-fighting
-    inset = 0.008
-    for y in (y0 - inset, y1 + inset):
+    inset = 0.006
+    gable_tile = max(tiles.get(gable_slot, 1.2), 0.05)
+
+    def gable(y: float) -> None:
         builder.add_face(
             [
                 (x_left, y, z_top),
@@ -182,23 +291,42 @@ def build_thatch_roof(
                 (x_left, y, z),
             ],
             gable_slot,
+            uvs=[
+                (0.0, z_top / gable_tile),
+                (half / gable_tile, z_ridge / gable_tile),
+                (2 * half / gable_tile, z_top / gable_tile),
+                (2 * half / gable_tile, z / gable_tile),
+                (0.0, z / gable_tile),
+            ],
         )
+
+    gable(y0 + inset)
+    gable(y1 - inset)
 
     # 檐口半圆压边
     lip = thickness * 0.5
     add_cylinder_y(builder, y0, y1, x_left, z + lip, lip, "thatch")
     add_cylinder_y(builder, y0, y1, x_right, z + lip, lip, "thatch")
 
-    # 山墙檐口滚边：沿两坡的山墙边缘各压一根粗草卷，形成厚重的金色草边
-    roll = thickness * 0.5 + 0.02
-    for y in (y0 - 0.01, y1 + 0.01):
-        add_tube(builder, (x_left, y, z + lip), (cx, y, z_ridge - lip), roll, "thatch")
-        add_tube(builder, (x_right, y, z + lip), (cx, y, z_ridge - lip), roll, "thatch")
+    # 博风板：两侧山墙沿坡向的深色木板，同时封住山墙与坡面的接缝
+    board_w = 0.15
+    _rake_board(builder, x_left, z, cx, z_ridge, y0 - 0.05, y0 + 0.004, board_w, "trim")
+    _rake_board(builder, x_right, z, cx, z_ridge, y0 - 0.05, y0 + 0.004, board_w, "trim")
+    _rake_board(builder, x_left, z, cx, z_ridge, y1 - 0.004, y1 + 0.05, board_w, "trim")
+    _rake_board(builder, x_right, z, cx, z_ridge, y1 - 0.004, y1 + 0.05, board_w, "trim")
 
-    # 屋脊原木脊梁，两端出挑
+    # 檐口封檐板：把山墙下缘与墙体之间的挑空遮住，避免出现一条黑缝
+    for y_a, y_b in ((y0, 0.0), (y1, depth)):
+        builder.add_box((x_left, y_a, z - 0.13), (x_right, y_b, z), "trim")
+
+    # 屋脊原木脊梁：半埋在草里，两端略微出挑
     builder.add_box(
-        (cx - 0.09, y0 - 0.14, z_ridge - 0.04),
-        (cx + 0.09, y1 + 0.14, z_ridge + 0.11),
+        (cx - 0.07, y0 - 0.10, z_ridge - 0.06),
+        (cx + 0.07, y1 + 0.10, z_ridge + 0.055),
         "trim",
     )
+
+    if gable_window is not None:
+        wx, wz, ww, wh = gable_window
+        _gable_window(builder, wx, wz, ww, wh, y0, tiles)
     return builder

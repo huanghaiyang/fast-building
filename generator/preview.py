@@ -166,7 +166,7 @@ def _module_builders(module_id: str, tiles: dict[str, float]) -> list[PreviewPar
         return [(roof, (-ROOF_W * 0.5, -ROOF_D * 0.5, 0.0))]
     if module_id == "base_stone_plinth":
         plinth = build_plinth(
-            ROOF_W, ROOF_D, 0.42, 0.72, 0.34, tiles, [(1.15, 2.05)], (1.0, 2.2)
+            ROOF_W, ROOF_D, 0.40, 0.45, 0.40, tiles, [(1.15, 2.05)], (0.95, 2.25)
         )
         return [(plinth, (-ROOF_W * 0.5, -ROOF_D * 0.5, 0.0))]
     if module_id == "porch_thatch_canopy":

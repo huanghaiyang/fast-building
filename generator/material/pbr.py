@@ -24,7 +24,7 @@ DEFAULT_TILES = {
     "glass": 2.0,
     # 茅草农舍构件：圆木、茅草、毛石
     "log": 0.9,
-    "thatch": 1.2,
+    "thatch": 1.5,
     "stone": 1.6,
 }
 

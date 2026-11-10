@@ -7,6 +7,10 @@
   "sill_h": 1.45,
   "windows_per_bay": 1,
   "door": true,
+  "door_windows": 2,
+  "door_window_w": 0.8,
+  "door_window_h": 0.95,
+  "door_window_sill": 1.15,
   "balcony": false,
   "palette": {
     "log": "log_bark",
@@ -34,7 +38,7 @@
     "bays": 2,
     "floors": 1,
     "floor_height": 2.9,
-    "roof_pitch": 33,
+    "roof_pitch": 28,
     "balcony": false
   }
 }

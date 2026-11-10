@@ -162,7 +162,39 @@ def _bay_openings(
     if floor_index == 0 and side == "front" and is_center and style.get("door", True):
         door_w = min(spec.openings.door_w, span * 0.6)
         door_h = min(spec.openings.door_h, wall_height - 0.18)
-        return [Opening((span - door_w) * 0.5, (span + door_w) * 0.5, 0.0, door_h, "door")]
+        door_x0 = (span - door_w) * 0.5
+        door_x1 = (span + door_w) * 0.5
+        openings = [Opening(door_x0, door_x1, 0.0, door_h, "door")]
+        # 门两侧对称小窗，避免开间中间只有一个门、两侧大片空墙
+        if int(style.get("door_windows", 0)) >= 2:
+            win_w = min(float(style.get("door_window_w", 0.8)), door_w)
+            sill = float(style.get("door_window_sill", 1.15))
+            win_h = min(
+                float(style.get("door_window_h", 0.95)), wall_height - sill - 0.25
+            )
+            gap = 0.30
+            if win_h >= 0.4:
+                if door_x0 - gap - win_w > 0.12:
+                    openings.append(
+                        Opening(
+                            door_x0 - gap - win_w,
+                            door_x0 - gap,
+                            sill,
+                            sill + win_h,
+                            "window",
+                        )
+                    )
+                if door_x1 + gap + win_w < span - 0.12:
+                    openings.append(
+                        Opening(
+                            door_x1 + gap,
+                            door_x1 + gap + win_w,
+                            sill,
+                            sill + win_h,
+                            "window",
+                        )
+                    )
+        return openings
     count = int(style.get("windows_per_bay", 1))
     return _window_openings(count, span, wall_height, spec, rng)
 
@@ -393,16 +425,19 @@ def build_building(
         if door is not None:
             door_cx, door_w = door
             gaps.append((door_cx - door_w * 0.5 - 0.18, door_cx + door_w * 0.5 + 0.18))
-            step = (door_cx - door_w * 0.5 - 0.35, door_cx + door_w * 0.5 + 0.35)
-        plinth = build_plinth(spec.width, spec.depth, 0.42, 0.72, 0.34, tiles, gaps, step)
+            # 有门廊时由门廊石台代替台阶，避免两级台基互相穿插
+            if not medieval.porch:
+                step = (door_cx - door_w * 0.5 - 0.35, door_cx + door_w * 0.5 + 0.35)
+        plinth = build_plinth(spec.width, spec.depth, 0.40, 0.45, 0.40, tiles, gaps, step)
         objects.append(create_object(plinth, "plinth_stone", mat_lib, collection))
 
     if medieval.porch and door is not None:
         door_cx, door_w = door
         bay_width = spec.width / spec.bays
-        porch_w = min(bay_width * 0.95, door_w + 1.6)
-        eave_h = min(2.45, wall_height - 0.3)
-        porch = build_thatch_porch(porch_w, 1.3, 0.7, eave_h, tiles)
+        porch_w = min(bay_width * 0.95, door_w + 1.9)
+        # 檐口压到 2.15 m、抬高屋脊，避免门廊变成贴门的小帽子
+        eave_h = min(2.15, wall_height - 0.55)
+        porch = build_thatch_porch(porch_w, 1.5, 1.05, eave_h, tiles)
         objects.append(
             create_object(porch, "porch_thatch", mat_lib, collection, (door_cx, 0.0, 0.0))
         )
@@ -430,11 +465,24 @@ def build_building(
             )
     else:
         if medieval.thatch_roof:
-            # 厚茅草：0.34 m 草层 + 0.78 m 大出檐
-            thickness = 0.34
-            overhang = 0.78
+            # 厚茅草：0.30 m 草层 + 0.55 m 出檐，屋顶体量不超过墙体
+            thickness = 0.30
+            overhang = 0.55
+            gable_window = (
+                roof_w * 0.5,
+                roof_z + 1.05,
+                0.62,
+                0.5,
+            )
             roof = build_thatch_roof(
-                roof_w, roof_d, roof_z, spec.roof_pitch, overhang, thickness, tiles
+                roof_w,
+                roof_d,
+                roof_z,
+                spec.roof_pitch,
+                overhang,
+                thickness,
+                tiles,
+                gable_window=gable_window,
             )
             roof_top = roof_z + thickness
             roof_half = (roof_w + 2.0 * overhang) * 0.5
@@ -491,7 +539,7 @@ def build_building(
             )
         # 茅草农舍使用毛石烟囱，与勒脚呼应
         slot = "stone" if (medieval.thatch_roof or medieval.stone_plinth) else "trim"
-        chimney = build_chimney(0.7, 0.62, 2.6, tiles, slot)
+        chimney = build_chimney(0.78, 0.62, 2.1, tiles, slot)
         objects.append(
             create_object(
                 chimney,

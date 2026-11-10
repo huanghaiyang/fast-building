@@ -40,7 +40,7 @@ def build_plinth(
 ) -> MeshBuilder:
     """毛石勒脚环带；gaps 为正面需要避开门洞的 X 区间。"""
     builder = MeshBuilder(tiles)
-    margin = 0.10
+    margin = 0.26  # 外扩到圆木转角出挑之外，让出挑的原木有石基承托
     z0 = top_z - height
     y_front0, y_front1 = -margin, -margin + thickness
     y_back0, y_back1 = depth + margin - thickness, depth + margin

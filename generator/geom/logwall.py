@@ -16,9 +16,9 @@ from ..meshkit import MeshBuilder
 from .arch import add_opening_pane
 from .wall_panel import Opening
 
-LOG_RADIUS = 0.13
-LOG_SEGMENTS = 10
-ROW_RATIO = 1.78  # 行距 / 半径，约 0.03 m 的压叠量
+LOG_RADIUS = 0.14
+LOG_SEGMENTS = 12
+ROW_RATIO = 1.62  # 行距 / 半径，约 0.053 m 的压叠量，缩小深缝避免读成横板
 FRAME_W = 0.075
 
 
@@ -31,12 +31,19 @@ def _add_log(
     slot: str,
     cap_left: bool,
     cap_right: bool,
+    texture_seed: float = 0.0,
 ) -> None:
-    """一根沿 X 的圆木；UV 的 U 轴对齐木纹方向（圆木轴向）。"""
+    """一根沿 X 的圆木；UV 的 U 轴对齐木纹方向（圆木轴向）。
+
+    每根圆木带一个 UV 偏移，避免整面墙所有木头都是同一张树皮。
+    """
     if x1 - x0 < 0.04:
         return
     tile = builder.tiles.get(slot, 2.0)
     arc = 2.0 * math.pi * radius
+    offset_u = (texture_seed * 0.618) % 1.0
+    offset_v = (texture_seed * 0.377) % 1.0
+    flip = 1.0 if (int(texture_seed * 1000) % 2) == 0 else -1.0
     ring = [
         (
             radius * math.cos(2.0 * math.pi * i / LOG_SEGMENTS),
@@ -47,8 +54,8 @@ def _add_log(
     for i in range(LOG_SEGMENTS):
         y0, z0 = ring[i]
         y1, z1 = ring[(i + 1) % LOG_SEGMENTS]
-        u0 = arc * i / LOG_SEGMENTS / tile
-        u1 = arc * (i + 1) / LOG_SEGMENTS / tile
+        u0 = arc * i / LOG_SEGMENTS / tile * flip + offset_u
+        u1 = arc * (i + 1) / LOG_SEGMENTS / tile * flip + offset_u
         builder.add_face(
             [
                 (x0, radius + y0, z_center + z0),
@@ -57,7 +64,12 @@ def _add_log(
                 (x0, radius + y1, z_center + z1),
             ],
             slot,
-            uvs=[(x0 / tile, u0), (x1 / tile, u0), (x1 / tile, u1), (x0 / tile, u1)],
+            uvs=[
+                (x0 / tile + offset_v, u0),
+                (x1 / tile + offset_v, u0),
+                (x1 / tile + offset_v, u1),
+                (x0 / tile + offset_v, u1),
+            ],
         )
     if cap_left:
         builder.add_face([(x0, radius + y, z_center + z) for y, z in ring], slot)
@@ -94,19 +106,54 @@ def _row_spans(
 
 def _add_frame(builder: MeshBuilder, op: Opening, thickness: float) -> None:
     """洞口木框：竖框 + 楣 + 窗台；门洞不设窗台。"""
+    frame = FRAME_W + 0.015
     builder.add_box(
-        (op.x0 - FRAME_W, 0.0, op.z1),
-        (op.x1 + FRAME_W, thickness, op.z1 + FRAME_W),
+        (op.x0 - frame, -0.02, op.z1),
+        (op.x1 + frame, thickness, op.z1 + frame),
         "trim",
     )
-    builder.add_box((op.x0 - FRAME_W, 0.0, op.z0), (op.x0, thickness, op.z1), "trim")
-    builder.add_box((op.x1, 0.0, op.z0), (op.x1 + FRAME_W, thickness, op.z1), "trim")
+    builder.add_box((op.x0 - frame, -0.02, op.z0), (op.x0, thickness, op.z1), "trim")
+    builder.add_box((op.x1, -0.02, op.z0), (op.x1 + frame, thickness, op.z1), "trim")
     if op.kind != "door":
         builder.add_box(
-            (op.x0 - FRAME_W - 0.03, -0.06, op.z0 - 0.09),
-            (op.x1 + FRAME_W + 0.03, thickness, op.z0),
+            (op.x0 - frame - 0.03, -0.07, op.z0 - 0.09),
+            (op.x1 + frame + 0.03, thickness, op.z0),
             "trim",
         )
+        # 窗后的深色背板，让玻璃读出「开口」而不是贴在墙上的亮片
+        builder.add_box(
+            (op.x0, thickness * 0.80, op.z0),
+            (op.x1, thickness * 0.86, op.z1),
+            "trim",
+        )
+
+
+def _add_door_leaves(builder: MeshBuilder, op: Opening, thickness: float) -> None:
+    """双扇板门：两片门扇 + 横向压条 + 门槛，代替单张门面片。"""
+    gap = 0.018
+    leaf = (op.x1 - op.x0 - gap) * 0.5
+    y0 = thickness * 0.18
+    y1 = thickness * 0.62
+    z0, z1 = op.z0 + 0.02, op.z1 - 0.01
+    if leaf < 0.1 or z1 - z0 < 0.3:
+        return
+    for index in range(2):
+        xa = op.x0 + index * (leaf + gap)
+        builder.add_box((xa, y0, z0), (xa + leaf, y1, z1), "door")
+    # 横向压条，读出板门分缝
+    for k in range(1, 4):
+        z = z0 + (z1 - z0) * k / 4.0
+        builder.add_box(
+            (op.x0 + 0.03, y0 - 0.012, z - 0.012),
+            (op.x1 - 0.03, y0 + 0.006, z + 0.012),
+            "trim",
+        )
+    # 门槛
+    builder.add_box(
+        (op.x0 - FRAME_W, -0.05, op.z0),
+        (op.x1 + FRAME_W, thickness, op.z0 + 0.07),
+        "trim",
+    )
 
 
 def build_log_wall(
@@ -152,6 +199,7 @@ def build_log_wall(
                 "log",
                 cut_left or x0 < -0.001,
                 cut_right or x1 > width + 0.001,
+                texture_seed=index * 0.37 + (xa * 0.07),
             )
 
     # 墙顶压梁，补齐最后一行圆木到墙高之间的空隙
@@ -160,5 +208,8 @@ def build_log_wall(
 
     for op in clean:
         _add_frame(builder, op, thickness)
-        add_opening_pane(builder, op, thickness, arched=False)
+        if op.kind == "door":
+            _add_door_leaves(builder, op, thickness)
+        else:
+            add_opening_pane(builder, op, thickness, arched=False)
     return builder
