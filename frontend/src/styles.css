@@ -453,12 +453,14 @@ code,
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: nowrap;
 }
 
 .toolbar-label {
   font-size: 10px;
   color: var(--muted);
   letter-spacing: 0.6px;
+  white-space: nowrap;
 }
 
 .chip-select {
@@ -481,6 +483,9 @@ code,
   backdrop-filter: blur(8px);
   color: var(--muted);
   font-size: 10.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  flex: none;
   cursor: pointer;
   transition: all 0.15s ease;
 }
