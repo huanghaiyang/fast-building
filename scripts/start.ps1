@@ -31,7 +31,23 @@ if (-not (Test-Path $python)) {
 }
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
-$listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+function Test-PortOpen {
+    param([int]$TargetPort)
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $async = $client.BeginConnect('127.0.0.1', $TargetPort, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne(300)) { return $false }
+        $client.EndConnect($async)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+$listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+    Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
 if ($listener) {
     Write-Host "后端已在运行：http://127.0.0.1:$port（PID $($listener.OwningProcess)）"
     exit 0
@@ -53,22 +69,25 @@ $process = Start-Process -FilePath $python `
 Write-Host "后端进程已启动（PID $($process.Id)），等待就绪 ..."
 
 # venv 的 python.exe 是启动器，会再派生真实解释器进程，
-# 因此以端口就绪为准，而不是以启动器进程是否存活为准。
+# 因此以端口监听为准，而不是以启动器进程是否存活为准。
 for ($i = 0; $i -lt 60; $i++) {
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 400
+    if (-not (Test-PortOpen $port)) { continue }
+
+    $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -eq 'Listen' } | Select-Object -First 1
+    if ($listener) {
+        $listener.OwningProcess | Set-Content -Path $pidFile -Encoding ASCII
+    } else {
+        $process.Id | Set-Content -Path $pidFile -Encoding ASCII
+    }
     try {
         $null = Invoke-RestMethod "http://127.0.0.1:$port/api/health" -TimeoutSec 3
-        $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-        if ($listener) {
-            ($listener.OwningProcess | Select-Object -First 1) | Set-Content -Path $pidFile -Encoding ASCII
-        } else {
-            $process.Id | Set-Content -Path $pidFile -Encoding ASCII
-        }
         Write-Host "启动成功：http://127.0.0.1:$port"
-        exit 0
     } catch {
-        # 端口尚未就绪，继续等待
+        Write-Host "端口 $port 已监听，但健康检查未通过，请查看日志：$errFile" -ForegroundColor Yellow
     }
+    exit 0
 }
 
 Write-Host "启动失败，请查看日志：$errFile" -ForegroundColor Red

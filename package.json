@@ -1,0 +1,12 @@
+{
+  "name": "fast-building",
+  "version": "0.1.0",
+  "private": true,
+  "description": "快速构建建筑平台（Blender 无头建模 + Web 工作台）",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "pause": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
+    "restart": "powershell -ExecutionPolicy Bypass -File scripts/restart.ps1"
+  }
+}

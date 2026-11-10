@@ -30,7 +30,8 @@ if (Test-Path $pidFile) {
 }
 
 if (-not $stopped) {
-    $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    $listener = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+        Where-Object { $_.State -eq 'Listen' }
     if ($listener) {
         foreach ($owner in ($listener.OwningProcess | Sort-Object -Unique)) {
             Stop-Process -Id $owner -Force -ErrorAction SilentlyContinue
