@@ -366,6 +366,48 @@ code,
   gap: 5px;
 }
 
+.module-preview {
+  position: relative;
+  height: 168px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(120, 158, 196, 0.22), transparent 62%),
+    linear-gradient(180deg, #121b24 0%, #0c131a 100%);
+  overflow: hidden;
+}
+
+.module-preview-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.module-preview-canvas canvas {
+  display: block;
+}
+
+.module-preview-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: rgba(8, 12, 17, 0.55);
+}
+
+.module-preview-hint {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  font-size: 9px;
+  color: #6f8295;
+  pointer-events: none;
+}
+
 .detail-row {
   display: flex;
   justify-content: space-between;

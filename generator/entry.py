@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
         argv = argv[1:]
     parser = argparse.ArgumentParser(description="Fast Building generator")
     parser.add_argument("--job", help="任务输入 JSON 的绝对路径")
+    parser.add_argument("--module", help="生成单个模块的三维预览")
+    parser.add_argument("--module-out", help="模块预览 GLB 的输出路径")
     parser.add_argument("--smoke", action="store_true", help="生成测试立方体，用于连通性自检")
     return parser.parse_args(argv)
 
@@ -109,12 +111,38 @@ def run_job(job_path: Path) -> int:
     return 0
 
 
+def run_module_preview(module_id: str, out_path: Path) -> int:
+    import json as json_module
+
+    from generator.exporter import export_glb
+    from generator.preview import build_module_preview
+
+    emit("STAGE", "modules", "0.15")
+    started = time.perf_counter()
+    _, stats = build_module_preview(module_id, ROOT / "data")
+
+    emit("STAGE", "export", "0.80")
+    glb = export_glb(out_path)
+    stats["seconds"] = round(time.perf_counter() - started, 2)
+    stats["glb_bytes"] = glb.stat().st_size if glb.exists() else 0
+    emit("STATS", json_module.dumps(stats, ensure_ascii=False))
+    emit("DONE", glb)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     job_path = Path(args.job).resolve() if args.job else None
     try:
         if args.smoke:
             return run_smoke(job_path)
+        if args.module:
+            out_path = (
+                Path(args.module_out).resolve()
+                if args.module_out
+                else (ROOT / "data" / "previews" / f"{args.module}.glb")
+            )
+            return run_module_preview(args.module, out_path)
         if job_path is None:
             emit("ERROR", "--job is required")
             return 2

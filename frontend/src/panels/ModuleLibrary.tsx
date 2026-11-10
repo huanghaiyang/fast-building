@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ModuleInfo } from "../api/client";
+import { ModulePreview } from "../viewer/ModulePreview";
 
 const CATEGORY_LABELS: Record<string, string> = {
   wall: "墙体",
@@ -36,7 +37,7 @@ export function ModuleLibrary({ modules }: Props) {
       <div className="panel-head">
         <div>
           <h2>模块库</h2>
-          <p className="panel-sub">拆解 · 复用 · 重组</p>
+          <p className="panel-sub">展开模块查看三维预览</p>
         </div>
         <span className="count-badge">{modules.length}</span>
       </div>
@@ -83,6 +84,9 @@ export function ModuleLibrary({ modules }: Props) {
 
               {isOpen && (
                 <div className="module-detail">
+                  <div onClick={(event) => event.stopPropagation()}>
+                    <ModulePreview moduleId={module.id} />
+                  </div>
                   <div className="detail-row">
                     <span>几何类型</span>
                     <code>{String(module.geom?.type ?? "-")}</code>

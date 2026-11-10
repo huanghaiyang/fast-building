@@ -7,9 +7,10 @@ import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from ..config import BLENDER_EXE, MODULES_DIR, STYLES_DIR
-from ..services import textures
+from ..services import previews, textures
 
 router = APIRouter(prefix="/api", tags=["resources"])
 
@@ -59,6 +60,24 @@ def health() -> dict:
 @router.get("/modules")
 def list_modules() -> list[dict]:
     return _read_json_dir(MODULES_DIR)
+
+
+@router.get("/modules/{module_id}/preview.glb")
+def module_preview(module_id: str) -> FileResponse:
+    """返回模块的三维预览 GLB，首次访问时由 Blender 生成并缓存。"""
+    if not previews.is_valid_module(module_id):
+        raise HTTPException(status_code=404, detail=f"未知模块：{module_id}")
+    try:
+        path = previews.ensure_preview(module_id)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="模块预览生成超时") from exc
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=f"模块预览生成失败：{exc}") from exc
+    return FileResponse(
+        path,
+        media_type="model/gltf-binary",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/styles")
