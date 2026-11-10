@@ -19,10 +19,14 @@ from .geom.arch import add_opening_pane, arch_strips
 from .geom.balcony import build_balcony
 from .geom.chimney import build_chimney
 from .geom.dormer import build_gable_dormer
+from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
+from .geom.plinth import build_plinth
+from .geom.porch import build_thatch_porch
 from .geom.roof import build_flat_roof, build_gable_roof
 from .geom.slab import build_slab
 from .geom.stair import build_straight_stair
+from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
 from .geom.wall_panel import Opening, build_wall_panel
 from .material.pbr import MaterialLibrary
@@ -60,10 +64,21 @@ def _preview_material(data_dir: Path) -> MaterialLibrary:
     """按类别挑选贴图集，构造与正式生成一致的材质库。"""
     sets = _available_sets(data_dir)
     facade = _pick(sets, ("brick", "plaster", "stone", "rock"), sets[0] if sets else "")
+
+    def pick(preferred: str, keywords: tuple[str, ...], fallback: str) -> str:
+        """优先使用专为构件准备的贴图集，缺失时按关键字回退。"""
+        if preferred in sets:
+            return preferred
+        return _pick(sets, keywords, fallback)
+
     style = {
         "palette": {
-            "trim": _pick(sets, ("plank", "wood", "timber"), facade),
+            "trim": pick("timber_oak", ("plank", "wood", "timber"), facade),
             "roof": _pick(sets, ("roof", "shingle"), facade),
+            "log": pick("log_bark", ("log", "wood", "timber"), facade),
+            "thatch": pick("thatch_straw", ("thatch", "straw"), facade),
+            "stone": pick("stone_rubble", ("stone", "rock"), facade),
+            "door": _pick(sets, ("plank", "wood", "timber"), facade),
         }
     }
     return MaterialLibrary(data_dir, facade, style)
@@ -139,6 +154,26 @@ def _module_builders(module_id: str, tiles: dict[str, float]) -> list[PreviewPar
         return [(dormer, (0.0, -0.75, 0.0), -math.pi / 2)]
     if module_id == "chimney_stack":
         chimney = build_chimney(0.9, 0.62, 2.6, tiles)
+        return [(chimney, (0.0, 0.0, 0.0))]
+    if module_id == "wall_log_stack":
+        openings = [Opening(WALL_W * 0.5 - 0.45, WALL_W * 0.5 + 0.45, 1.3, 2.05, "window")]
+        wall = build_log_wall(
+            WALL_W, WALL_H, openings, tiles, protrude_left=0.24, protrude_right=0.24
+        )
+        return [(wall, (-WALL_W * 0.5, 0.0, 0.0))]
+    if module_id == "roof_thatch_gable":
+        roof = build_thatch_roof(ROOF_W, ROOF_D, 0.0, 40.0, 0.55, 0.3, tiles)
+        return [(roof, (-ROOF_W * 0.5, -ROOF_D * 0.5, 0.0))]
+    if module_id == "base_stone_plinth":
+        plinth = build_plinth(
+            ROOF_W, ROOF_D, 0.42, 0.72, 0.34, tiles, [(1.15, 2.05)], (1.0, 2.2)
+        )
+        return [(plinth, (-ROOF_W * 0.5, -ROOF_D * 0.5, 0.0))]
+    if module_id == "porch_thatch_canopy":
+        porch = build_thatch_porch(2.2, 1.3, 0.68, 2.2, tiles)
+        return [(porch, (0.0, 0.7, 0.0))]
+    if module_id == "chimney_stone_stack":
+        chimney = build_chimney(0.7, 0.62, 2.6, tiles, "stone")
         return [(chimney, (0.0, 0.0, 0.0))]
     # 未知模块退化为标准墙板，保证接口始终有可用预览
     return _wall_builders(tiles)

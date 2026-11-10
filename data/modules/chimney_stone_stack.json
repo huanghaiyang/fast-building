@@ -1,0 +1,16 @@
+{
+  "id": "chimney_stone_stack",
+  "name": "毛石烟囱",
+  "version": 1,
+  "category": "roof",
+  "description": "毛石砌筑的屋面烟囱，顶部带出挑压顶，可与茅草屋顶、毛石勒脚形成统一的灰色石材质感。",
+  "tags": ["rustic", "stone", "chimney", "roof"],
+  "bbox": { "min": [-0.47, -0.43, 0], "max": [0.47, 0.43, 2.74] },
+  "geom": { "type": "chimney", "width": 0.7, "depth": 0.62, "height": 2.6, "cap": 0.14 },
+  "sockets": [
+    { "name": "roof_seat", "type": "roof_seat", "pos": [0, 0, 1.5], "normal": [0, 0, -1], "up": [0, 1, 0] }
+  ],
+  "slots": [{ "name": "stone", "texset": "stone_rubble", "tile_m": 1.6 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_chimney_stone_stack" }
+}

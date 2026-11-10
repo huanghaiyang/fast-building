@@ -42,6 +42,10 @@ const DEFAULT_FORM: Footprint = {
     crenellation: false,
     dormers: 0,
     chimney: false,
+    log_walls: false,
+    thatch_roof: false,
+    stone_plinth: false,
+    porch: false,
   },
 };
 
@@ -180,7 +184,8 @@ export default function App() {
       setForm((current) => {
         const next = { ...current, ...patch };
         if (patch.style && patch.style !== current.style) {
-          const preset = styles.find((item) => item.id === patch.style)?.medieval;
+          const style = styles.find((item) => item.id === patch.style);
+          const preset = style?.medieval;
           if (preset) {
             next.medieval = {
               timber_frame: preset.timber_frame ?? current.medieval.timber_frame,
@@ -189,7 +194,24 @@ export default function App() {
               crenellation: preset.crenellation ?? current.medieval.crenellation,
               dormers: preset.dormers ?? current.medieval.dormers,
               chimney: preset.chimney ?? current.medieval.chimney,
+              log_walls: preset.log_walls ?? current.medieval.log_walls,
+              thatch_roof: preset.thatch_roof ?? current.medieval.thatch_roof,
+              stone_plinth: preset.stone_plinth ?? current.medieval.stone_plinth,
+              porch: preset.porch ?? current.medieval.porch,
             };
+          }
+          // 风格自带的体量预设（例如茅草农舍默认单层小体量）
+          const geometry = style?.preset;
+          if (geometry) {
+            next.width = geometry.width ?? next.width;
+            next.depth = geometry.depth ?? next.depth;
+            next.bays = geometry.bays ?? next.bays;
+            next.floors = geometry.floors ?? next.floors;
+            next.floor_height = geometry.floor_height ?? next.floor_height;
+            next.roof_pitch = geometry.roof_pitch ?? next.roof_pitch;
+            next.balcony = geometry.balcony ?? next.balcony;
+            next.medieval.jetty = false;
+            next.medieval.dormers = 0;
           }
         }
         return next;

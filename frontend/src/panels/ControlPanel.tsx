@@ -299,6 +299,50 @@ export function ControlPanel(props: Props) {
 
       <details className="group collapsible">
         <summary>
+          <h3>原木与茅草</h3>
+          <span>展开</span>
+        </summary>
+        <div className="medieval-grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.log_walls}
+              onChange={(event) => onMedievalChange({ log_walls: event.target.checked })}
+            />
+            <span>圆木叠砌墙</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.thatch_roof}
+              onChange={(event) => onMedievalChange({ thatch_roof: event.target.checked })}
+            />
+            <span>厚茅草屋顶</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.stone_plinth}
+              onChange={(event) => onMedievalChange({ stone_plinth: event.target.checked })}
+            />
+            <span>毛石勒脚</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.porch}
+              onChange={(event) => onMedievalChange({ porch: event.target.checked })}
+            />
+            <span>茅草门廊</span>
+          </label>
+        </div>
+        <p className="hint">
+          圆木墙会在转角出挑咬合；茅草屋顶仅在双坡时生效，并自动改用毛石烟囱。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
           <h3>门窗尺寸</h3>
           <span>展开</span>
         </summary>

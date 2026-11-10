@@ -29,6 +29,16 @@ export interface ModuleInfo {
   preview?: string;
 }
 
+export interface StylePreset {
+  width?: number;
+  depth?: number;
+  bays?: number;
+  floors?: number;
+  floor_height?: number;
+  roof_pitch?: number;
+  balcony?: boolean;
+}
+
 export interface StyleInfo {
   id: string;
   name: string;
@@ -41,6 +51,7 @@ export interface StyleInfo {
   door?: boolean;
   palette?: Record<string, string>;
   medieval?: Partial<Medieval>;
+  preset?: StylePreset;
 }
 
 export interface TextureSet {
@@ -69,6 +80,10 @@ export interface Medieval {
   crenellation: boolean;
   dormers: number;
   chimney: boolean;
+  log_walls: boolean;
+  thatch_roof: boolean;
+  stone_plinth: boolean;
+  porch: boolean;
 }
 
 export interface Footprint {

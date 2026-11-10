@@ -1,0 +1,22 @@
+{
+  "id": "base_stone_plinth",
+  "name": "毛石勒脚",
+  "version": 1,
+  "category": "base",
+  "description": "环绕建筑一周的毛石基座，正面按门洞留缺口，门前带一级石阶，抬升原木墙脚防潮。",
+  "tags": ["rustic", "stone", "base", "cabin"],
+  "bbox": { "min": [-0.1, -0.1, -0.3], "max": [3.3, 2.7, 0.42] },
+  "geom": {
+    "type": "stone_plinth",
+    "top_z": 0.42,
+    "height": 0.72,
+    "thickness": 0.34,
+    "door_gap": true
+  },
+  "sockets": [
+    { "name": "top", "type": "wall_base", "pos": [1.6, 1.3, 0.42], "normal": [0, 0, 1], "up": [0, 1, 0] }
+  ],
+  "slots": [{ "name": "stone", "texset": "stone_rubble", "tile_m": 1.6 }],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_base_stone_plinth" }
+}

@@ -22,6 +22,10 @@ DEFAULT_TILES = {
     "roof": 2.0,
     "door": 2.0,
     "glass": 2.0,
+    # 茅草农舍构件：圆木、茅草、毛石
+    "log": 0.9,
+    "thatch": 1.2,
+    "stone": 1.6,
 }
 
 FALLBACK_COLORS = {
@@ -30,6 +34,9 @@ FALLBACK_COLORS = {
     "roof": (0.28, 0.13, 0.10, 1.0),
     "door": (0.09, 0.07, 0.06, 1.0),
     "glass": (0.55, 0.72, 0.80, 0.32),
+    "log": (0.30, 0.18, 0.10, 1.0),
+    "thatch": (0.62, 0.46, 0.18, 1.0),
+    "stone": (0.44, 0.43, 0.40, 1.0),
 }
 
 
@@ -68,6 +75,10 @@ class MaterialLibrary:
             # 入户门默认使用深色实体材质，不跟随外墙贴图
             "door": palette.get("door") if self._set_exists(palette.get("door")) else "",
             "glass": "",
+            # 茅草农舍专用槽位；未配置时回退到纯色材质
+            "log": pick("log"),
+            "thatch": pick("thatch"),
+            "stone": pick("stone"),
         }
         return mapping
 

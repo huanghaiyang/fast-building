@@ -9,9 +9,21 @@ const CATEGORY_LABELS: Record<string, string> = {
   opening: "门窗",
   stair: "楼梯",
   balcony: "阳台",
+  base: "基座",
+  porch: "门廊",
 };
 
-const CATEGORY_ORDER = ["all", "wall", "slab", "roof", "opening", "stair", "balcony"];
+const CATEGORY_ORDER = [
+  "all",
+  "wall",
+  "slab",
+  "roof",
+  "opening",
+  "stair",
+  "balcony",
+  "base",
+  "porch",
+];
 
 interface Props {
   modules: ModuleInfo[];

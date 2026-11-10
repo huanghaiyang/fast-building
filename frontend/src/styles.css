@@ -333,6 +333,8 @@ code,
 .cat-opening { background: #58e0c4; }
 .cat-stair { background: #b28cff; }
 .cat-balcony { background: #8ed56a; }
+.cat-base { background: #b9b3a6; }
+.cat-porch { background: #e0c05a; }
 
 .module-title {
   flex: 1;

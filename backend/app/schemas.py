@@ -30,6 +30,11 @@ class MedievalSpec(BaseModel):
     crenellation: bool = False
     dormers: int = Field(0, ge=0, le=4)
     chimney: bool = False
+    # 乡土构件（茅草顶原木农舍）
+    log_walls: bool = False
+    thatch_roof: bool = False
+    stone_plinth: bool = False
+    porch: bool = False
 
 
 class Footprint(BaseModel):

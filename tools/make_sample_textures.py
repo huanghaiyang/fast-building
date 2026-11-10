@@ -270,6 +270,128 @@ def timber() -> dict:
     )
 
 
+def thatch_straw() -> dict:
+    """金色茅草：竖向草茎纹理 + 水平压层阴影，适合厚茅草屋面与披檐。"""
+    yy, xx = np.mgrid[0:SIZE, 0:SIZE].astype(np.float64)
+    rng = np.random.default_rng(101)
+    # 每一列的草茎亮度略有差异，形成细密的竖向纤维感
+    strand = rng.uniform(-1.0, 1.0, SIZE)[None, :]
+    fibre = (
+        np.sin(xx / 1.7 + _noise(102, 1.4)) * 0.5
+        + np.sin(xx / 4.3 + 1.1) * 0.3
+    )
+    # 压层线做轻微起伏，避免出现完全水平的规则条纹；每层约 0.22 m（tile 1.2 m）
+    drift = np.sin(xx / 23.0) * 5.0 + _noise(106, 2.0)
+    layer = ((yy + drift) % 96.0) / 96.0
+    layer_shadow = np.where(layer < 0.18, 0.70 + 0.30 * (layer / 0.18), 1.0)
+    tip = np.where((layer > 0.8) & (strand > 0.5), 1.12, 1.0)
+
+    value = (214.0 + strand * 15.0 + fibre * 9.0 + _noise(103, 5.0)) * layer_shadow * tip
+    base = np.stack([value, value * 0.84, value * 0.43], axis=-1)
+
+    height = (0.5 + 0.5 * layer) + fibre * 0.05 + _noise(104, 0.02)
+    roughness = np.minimum(0.94 + _noise(105, 0.02), 1.0)
+    ao = np.clip(layer_shadow, 0.55, 1.0) * np.where((yy % 96) < 8, 0.72, 1.0)
+    metallic = np.zeros_like(height)
+
+    return _save_set(
+        "thatch_straw",
+        "金色茅草",
+        tile_m=1.2,
+        basecolor=base,
+        height=height,
+        roughness=roughness,
+        ao=ao,
+        metallic=metallic,
+    )
+
+
+def log_bark() -> dict:
+    """原木树皮：纹理沿 U 方向拉长，UV 的 U 轴对齐圆木轴向。"""
+    yy, xx = np.mgrid[0:SIZE, 0:SIZE].astype(np.float64)
+    grain = (
+        np.sin(yy / 5.0 + np.sin(xx / 41.0) * 2.1) * 0.5
+        + np.sin(yy / 13.0 + 0.6) * 0.3
+    )
+    crack = (np.abs(np.sin(xx / 97.0 + np.sin(yy / 21.0) * 2.0)) > 0.995).astype(float)
+    value = 118.0 + grain * 18.0 + _noise(111, 4.0) - crack * 34.0
+    base = np.stack([value, value * 0.68, value * 0.46], axis=-1)
+
+    height = 1.0 + grain * 0.08 - crack * 0.35 + _noise(112, 0.02)
+    roughness = 0.85 + _noise(113, 0.03)
+    ao = 0.95 - crack * 0.3 + _noise(114, 0.01)
+    metallic = np.zeros_like(height)
+
+    return _save_set(
+        "log_bark",
+        "原木树皮",
+        tile_m=0.9,
+        basecolor=base,
+        height=height,
+        roughness=roughness,
+        ao=ao,
+        metallic=metallic,
+    )
+
+
+def stone_rubble() -> dict:
+    """毛石勒脚：抖动网格的 Voronoi 石块 + 均匀灰缝，边界不规则且可无缝平铺。"""
+    yy, xx = np.mgrid[0:SIZE, 0:SIZE].astype(np.float64)
+    cell = 64
+    n = SIZE // cell
+    rng = np.random.default_rng(121)
+    jx = rng.uniform(0.12, 0.88, (n, n)) * cell
+    jy = rng.uniform(0.12, 0.88, (n, n)) * cell
+    tint = rng.uniform(-18.0, 18.0, (n, n))
+
+    gx = (xx // cell).astype(np.int64)
+    gy = (yy // cell).astype(np.int64)
+    stack = np.empty((9, SIZE, SIZE), dtype=np.float64)
+    ids = np.empty((9, SIZE, SIZE), dtype=np.int64)
+    slot = 0
+    for oy in (-1, 0, 1):
+        for ox in (-1, 0, 1):
+            cgx = (gx + ox) % n
+            cgy = (gy + oy) % n
+            sx = (gx + ox) * cell + jx[cgy, cgx]
+            sy = (gy + oy) * cell + jy[cgy, cgx]
+            stack[slot] = np.hypot(xx - sx, yy - sy)
+            ids[slot] = cgy * n + cgx
+            slot += 1
+
+    order = np.argsort(stack, axis=0)
+    d1 = np.take_along_axis(stack, order[0:1], axis=0)[0]
+    d2 = np.take_along_axis(stack, order[1:2], axis=0)[0]
+    stone_id = np.take_along_axis(ids, order[0:1], axis=0)[0]
+    flat = stone_id % (n * n)
+    tint_map = tint.reshape(-1)[flat]
+
+    # 到 Voronoi 边界的距离：灰缝宽度均匀，石块轮廓自然
+    edge = (d2 - d1) * 0.5
+    is_stone = edge > 2.6
+    dome = np.clip(edge / 22.0, 0.0, 1.0)
+
+    value = 128.0 + tint_map + _noise(123, 6.0) + dome * 26.0
+    base = np.stack([value, value * 0.985, value * 0.95], axis=-1)
+    base[~is_stone] = np.array([88.0, 86.0, 81.0]) + _noise(124, 5.0)[~is_stone][:, None]
+
+    height = np.where(is_stone, 0.32 + 0.68 * dome, 0.16) + _noise(125, 0.02)
+    roughness = np.where(is_stone, 0.86, 0.94) + _noise(126, 0.02)
+    ao = np.where(is_stone, 0.7 + 0.3 * dome, 0.42)
+    metallic = np.zeros_like(height)
+
+    return _save_set(
+        "stone_rubble",
+        "毛石砌体",
+        tile_m=1.6,
+        basecolor=base,
+        height=height,
+        roughness=roughness,
+        ao=ao,
+        metallic=metallic,
+    )
+
+
 def _save_set(
     set_id: str,
     display_name: str,
@@ -326,3 +448,6 @@ if __name__ == "__main__":
     stone()
     shingle()
     timber()
+    thatch_straw()
+    log_bark()
+    stone_rubble()

@@ -38,6 +38,11 @@ class Medieval:
     crenellation: bool = False
     dormers: int = 0
     chimney: bool = False
+    # 乡土构件（茅草顶原木农舍）
+    log_walls: bool = False
+    thatch_roof: bool = False
+    stone_plinth: bool = False
+    porch: bool = False
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Medieval":
@@ -49,6 +54,10 @@ class Medieval:
             crenellation=bool(data.get("crenellation", False)),
             dormers=int(data.get("dormers", 0)),
             chimney=bool(data.get("chimney", False)),
+            log_walls=bool(data.get("log_walls", False)),
+            thatch_roof=bool(data.get("thatch_roof", False)),
+            stone_plinth=bool(data.get("stone_plinth", False)),
+            porch=bool(data.get("porch", False)),
         )
 
 

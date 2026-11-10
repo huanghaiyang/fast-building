@@ -1,0 +1,25 @@
+{
+  "id": "roof_thatch_gable",
+  "name": "厚茅草双坡顶",
+  "version": 1,
+  "category": "roof",
+  "description": "0.3 m 以上草层的双坡屋顶，大出檐、檐口半圆压边、山墙用茅草封满，屋脊压深色原木脊梁。",
+  "tags": ["rustic", "thatch", "roof", "cabin"],
+  "bbox": { "min": [-0.78, -0.78, 0], "max": [3.98, 3.38, 2.3] },
+  "geom": {
+    "type": "thatch_gable",
+    "pitch_deg": 40,
+    "overhang": 0.55,
+    "thickness": 0.3,
+    "ridge_beam": 0.18
+  },
+  "sockets": [
+    { "name": "base", "type": "roof_base", "pos": [1.6, 1.3, 0], "normal": [0, 0, -1], "up": [0, 1, 0] }
+  ],
+  "slots": [
+    { "name": "thatch", "texset": "thatch_straw", "tile_m": 1.2 },
+    { "name": "trim", "texset": "timber_oak", "tile_m": 1.5 }
+  ],
+  "lod": [{ "level": 0, "ratio": 1.0 }],
+  "source": { "blend": "generated", "collection": "MOD_roof_thatch_gable" }
+}

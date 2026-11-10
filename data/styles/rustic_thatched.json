@@ -1,0 +1,40 @@
+{
+  "id": "rustic_thatched",
+  "name": "茅草顶原木农舍",
+  "description": "北欧风格圆木叠砌农舍：厚茅草大出檐双坡顶、转角咬合原木、毛石勒脚与石烟囱，入户门上方覆茅草披檐门廊。",
+  "window_w": 0.85,
+  "window_h": 0.8,
+  "sill_h": 1.45,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "log": "log_bark",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble",
+    "trim": "timber_oak",
+    "roof": "thatch_straw",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": false,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": true,
+    "log_walls": true,
+    "thatch_roof": true,
+    "stone_plinth": true,
+    "porch": true
+  },
+  "preset": {
+    "width": 8.5,
+    "depth": 6.2,
+    "bays": 2,
+    "floors": 1,
+    "floor_height": 2.9,
+    "roof_pitch": 33,
+    "balcony": false
+  }
+}

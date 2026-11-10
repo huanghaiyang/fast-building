@@ -10,13 +10,14 @@ def build_chimney(
     depth: float,
     height: float,
     tiles: dict[str, float],
+    slot: str = "trim",
 ) -> MeshBuilder:
     builder = MeshBuilder(tiles)
-    builder.add_box((-width * 0.5, -depth * 0.5, 0.0), (width * 0.5, depth * 0.5, height), "trim")
+    builder.add_box((-width * 0.5, -depth * 0.5, 0.0), (width * 0.5, depth * 0.5, height), slot)
     # 压顶
     builder.add_box(
         (-width * 0.5 - 0.12, -depth * 0.5 - 0.12, height),
         (width * 0.5 + 0.12, depth * 0.5 + 0.12, height + 0.14),
-        "trim",
+        slot,
     )
     return builder

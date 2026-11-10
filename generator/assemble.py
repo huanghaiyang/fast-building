@@ -18,15 +18,21 @@ from .geom.arch import add_opening_pane, arch_strips
 from .geom.balcony import build_balcony
 from .geom.chimney import build_chimney
 from .geom.dormer import build_gable_dormer
+from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
+from .geom.plinth import build_plinth
+from .geom.porch import build_thatch_porch
 from .geom.roof import build_flat_roof, build_gable_roof
 from .geom.slab import build_slab
 from .geom.stair import build_straight_stair
+from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
 from .geom.wall_panel import Opening, build_wall_panel
 from .material.pbr import MaterialLibrary
 from .meshkit import MeshBuilder
 from .schema import SLAB_THICKNESS, WALL_THICKNESS, Spec
+
+LOG_CORNER = 0.24
 
 DEFAULT_STYLE = {
     "id": "default",
@@ -186,6 +192,38 @@ def _wall_panel(
     return builder
 
 
+def _wall_builder(
+    width: float,
+    height: float,
+    openings: list[Opening],
+    tiles: dict[str, float],
+    arched: bool,
+    medieval,
+    left_end: bool,
+    right_end: bool,
+) -> MeshBuilder:
+    """按开关选择原木墙或普通墙板；只有建筑外墙端才让圆木出挑。"""
+    if medieval.log_walls:
+        return build_log_wall(
+            width,
+            height,
+            openings,
+            tiles,
+            protrude_left=LOG_CORNER if left_end else 0.0,
+            protrude_right=LOG_CORNER if right_end else 0.0,
+        )
+    return _wall_panel(width, height, openings, tiles, arched)
+
+
+def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:
+    """首层中心开间的门洞中心与宽度；不设门时返回 None。"""
+    if not style.get("door", True):
+        return None
+    bay_width = spec.width / spec.bays
+    door_w = min(spec.openings.door_w, bay_width * 0.6)
+    return (spec.bays // 2 + 0.5) * bay_width, door_w
+
+
 # --------------------------------------------------------------------------- 主体装配
 def build_building(
     spec: Spec, data_dir: Path
@@ -226,11 +264,20 @@ def build_building(
             is_center = bay == spec.bays // 2
 
             front_ops = _bay_openings(bay_width, wall_height, floor, "front", is_center, spec, style)
-            front = _wall_panel(bay_width, wall_height, front_ops, tiles, arched)
+            front = _wall_builder(
+                bay_width,
+                wall_height,
+                front_ops,
+                tiles,
+                arched,
+                medieval,
+                bay == 0,
+                bay == spec.bays - 1,
+            )
             objects.append(
                 create_object(front, f"wall_front_f{floor}_b{bay}", mat_lib, collection, (x0, -ext, wall_z), 0.0)
             )
-            if medieval.timber_frame:
+            if medieval.timber_frame and not medieval.log_walls:
                 frame = build_timber_frame(bay_width, wall_height, front_ops, tiles)
                 objects.append(
                     create_object(
@@ -244,7 +291,16 @@ def build_building(
                 )
 
             back_ops = _bay_openings(bay_width, wall_height, floor, "back", False, spec, style)
-            back = _wall_panel(bay_width, wall_height, back_ops, tiles, arched)
+            back = _wall_builder(
+                bay_width,
+                wall_height,
+                back_ops,
+                tiles,
+                arched,
+                medieval,
+                bay == spec.bays - 1,
+                bay == 0,
+            )
             objects.append(
                 create_object(
                     back,
@@ -255,7 +311,7 @@ def build_building(
                     math.pi,
                 )
             )
-            if medieval.timber_frame:
+            if medieval.timber_frame and not medieval.log_walls:
                 frame = build_timber_frame(bay_width, wall_height, back_ops, tiles)
                 objects.append(
                     create_object(
@@ -271,7 +327,9 @@ def build_building(
         # 左右侧墙：内缩出墙角，避免与前后面共面产生 z-fighting
         if side_length > 1.2:
             left_ops = _side_openings(side_length, wall_height, floor, spec)
-            left = _wall_panel(side_length, wall_height, left_ops, tiles, arched)
+            left = _wall_builder(
+                side_length, wall_height, left_ops, tiles, arched, medieval, True, True
+            )
             objects.append(
                 create_object(
                     left,
@@ -284,7 +342,9 @@ def build_building(
             )
 
             right_ops = _side_openings(side_length, wall_height, floor, spec)
-            right = _wall_panel(side_length, wall_height, right_ops, tiles, arched)
+            right = _wall_builder(
+                side_length, wall_height, right_ops, tiles, arched, medieval, True, True
+            )
             objects.append(
                 create_object(
                     right,
@@ -325,12 +385,35 @@ def build_building(
             )
             objects.append(create_object(stair, "stairs_f0", mat_lib, collection))
 
+    # 毛石勒脚与茅草门廊（乡土构件）
+    door = _ground_door(spec, style)
+    if medieval.stone_plinth:
+        gaps: list[tuple[float, float]] = []
+        step = None
+        if door is not None:
+            door_cx, door_w = door
+            gaps.append((door_cx - door_w * 0.5 - 0.18, door_cx + door_w * 0.5 + 0.18))
+            step = (door_cx - door_w * 0.5 - 0.35, door_cx + door_w * 0.5 + 0.35)
+        plinth = build_plinth(spec.width, spec.depth, 0.42, 0.72, 0.34, tiles, gaps, step)
+        objects.append(create_object(plinth, "plinth_stone", mat_lib, collection))
+
+    if medieval.porch and door is not None:
+        door_cx, door_w = door
+        bay_width = spec.width / spec.bays
+        porch_w = min(bay_width * 0.95, door_w + 1.6)
+        eave_h = min(2.45, wall_height - 0.3)
+        porch = build_thatch_porch(porch_w, 1.3, 0.7, eave_h, tiles)
+        objects.append(
+            create_object(porch, "porch_thatch", mat_lib, collection, (door_cx, 0.0, 0.0))
+        )
+
     # 屋顶：按顶层（含悬挑）轮廓生成
     top_ext = jetty_step * (spec.floors - 1)
     roof_w = spec.width + 2 * top_ext
     roof_d = spec.depth + 2 * top_ext
     roof_z = spec.floors * spec.floor_height
     roof_top = roof_z + 0.22
+    roof_half = (roof_w + 0.9) * 0.5
 
     if spec.roof == "flat":
         roof = build_flat_roof(roof_w, roof_d, roof_z, 0.45, 0.28, tiles)
@@ -346,15 +429,25 @@ def build_building(
                 )
             )
     else:
-        roof = build_gable_roof(
-            roof_w, roof_d, roof_z, spec.roof_pitch, 0.45, 0.22, tiles
-        )
+        if medieval.thatch_roof:
+            # 厚茅草：0.34 m 草层 + 0.78 m 大出檐
+            thickness = 0.34
+            overhang = 0.78
+            roof = build_thatch_roof(
+                roof_w, roof_d, roof_z, spec.roof_pitch, overhang, thickness, tiles
+            )
+            roof_top = roof_z + thickness
+            roof_half = (roof_w + 2.0 * overhang) * 0.5
+        else:
+            roof = build_gable_roof(
+                roof_w, roof_d, roof_z, spec.roof_pitch, 0.45, 0.22, tiles
+            )
         objects.append(
             create_object(roof, "roof", mat_lib, collection, (-top_ext, -top_ext, 0.0))
         )
 
-        # 老虎窗：左右两坡对称布置，滑杆数值为每坡数量
-        if medieval.dormers > 0:
+        # 老虎窗：左右两坡对称布置，滑杆数值为每坡数量（茅草屋顶不设老虎窗）
+        if medieval.dormers > 0 and not medieval.thatch_roof:
             count = min(medieval.dormers, 4)
             body = build_gable_dormer(1.05, 1.35, 1.5, tiles)
             pitch = math.tan(math.radians(spec.roof_pitch))
@@ -391,13 +484,14 @@ def build_building(
             surface = roof_top
             chim_x = roof_w * 0.72
         else:
-            half = (roof_w + 0.9) * 0.5
             cx = roof_w * 0.5
-            chim_x = cx + half * 0.38
-            surface = roof_top + (half - abs(chim_x - cx)) * math.tan(
+            chim_x = cx + roof_half * 0.38
+            surface = roof_top + (roof_half - abs(chim_x - cx)) * math.tan(
                 math.radians(spec.roof_pitch)
             )
-        chimney = build_chimney(0.9, 0.62, 2.6, tiles)
+        # 茅草农舍使用毛石烟囱，与勒脚呼应
+        slot = "stone" if (medieval.thatch_roof or medieval.stone_plinth) else "trim"
+        chimney = build_chimney(0.7, 0.62, 2.6, tiles, slot)
         objects.append(
             create_object(
                 chimney,
