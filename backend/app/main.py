@@ -8,14 +8,26 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .api import jobs_api, resources
 from .config import FRONTEND_DIST, JOBS_DIR, TEXTURES_DIR
+from .services import previews
 
-app = FastAPI(title="Fast Building Platform", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动时后台预热模块预览资源，退出时停止预热线程。"""
+    previews.start_prewarm()
+    yield
+    previews.stop_prewarm()
+
+
+app = FastAPI(title="Fast Building Platform", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

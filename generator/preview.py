@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import bpy
@@ -32,6 +33,12 @@ WALL_W = 2.8
 WALL_H = 2.7
 ROOF_W = 3.2
 ROOF_D = 2.6
+
+# (几何, 位置) 或 (几何, 位置, 绕 Z 旋转角度)
+PreviewPart = (
+    tuple[MeshBuilder, tuple[float, float, float]]
+    | tuple[MeshBuilder, tuple[float, float, float], float]
+)
 
 
 def _available_sets(data_dir: Path) -> list[str]:
@@ -87,15 +94,13 @@ def _wall_builders(
         wall = build_wall_panel(WALL_W, WALL_H, WALL_THICKNESS, openings, tiles)
 
     base = (-WALL_W * 0.5, 0.0, 0.0)
-    result: list[tuple[MeshBuilder, tuple[float, float, float]]] = [(wall, base)]
+    result: list[PreviewPart] = [(wall, base)]
     if timber:
         result.append((build_timber_frame(WALL_W, WALL_H, openings, tiles), base))
     return result
 
 
-def _module_builders(
-    module_id: str, tiles: dict[str, float]
-) -> list[tuple[MeshBuilder, tuple[float, float, float]]]:
+def _module_builders(module_id: str, tiles: dict[str, float]) -> list[PreviewPart]:
     if module_id == "wall_basic":
         return _wall_builders(tiles)
     if module_id == "wall_timber_frame":
@@ -130,7 +135,8 @@ def _module_builders(
         return [(roof, offset), (parapet, offset)]
     if module_id == "dormer_gable":
         dormer = build_gable_dormer(1.05, 1.35, 1.5, tiles)
-        return [(dormer, (0.75, 0.0, 0.0))]
+        # 窗体朝 +X，绕 Z 旋转 -90° 使其朝向 -Y，与其他模块的 3/4 视角一致
+        return [(dormer, (0.0, -0.75, 0.0), -math.pi / 2)]
     if module_id == "chimney_stack":
         chimney = build_chimney(0.9, 0.62, 2.6, tiles)
         return [(chimney, (0.0, 0.0, 0.0))]
@@ -148,7 +154,9 @@ def build_module_preview(
     tiles = mat_lib.tiles
 
     objects: list[bpy.types.Object] = []
-    for index, (builder, location) in enumerate(_module_builders(module_id, tiles)):
+    for index, part in enumerate(_module_builders(module_id, tiles)):
+        builder, location = part[0], part[1]
+        rotation = part[2] if len(part) > 2 else 0.0
         objects.append(
             create_object(
                 builder,
@@ -156,6 +164,7 @@ def build_module_preview(
                 mat_lib,
                 collection,
                 location,
+                rotation,
             )
         )
 

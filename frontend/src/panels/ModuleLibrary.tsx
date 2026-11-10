@@ -37,7 +37,7 @@ export function ModuleLibrary({ modules }: Props) {
       <div className="panel-head">
         <div>
           <h2>模块库</h2>
-          <p className="panel-sub">展开模块查看三维预览</p>
+          <p className="panel-sub">缩略图预览 · 点击展开三维模型</p>
         </div>
         <span className="count-badge">{modules.length}</span>
       </div>
@@ -66,9 +66,23 @@ export function ModuleLibrary({ modules }: Props) {
               onClick={() => setExpanded(isOpen ? null : module.id)}
             >
               <div className="module-card-top">
-                <span className={`category-dot cat-${module.category}`} />
+                <span className="module-thumb">
+                  {module.thumbnail && (
+                    <img
+                      src={module.thumbnail}
+                      alt={module.name}
+                      loading="lazy"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                </span>
                 <div className="module-title">
-                  <h3>{module.name}</h3>
+                  <h3>
+                    <span className={`category-dot cat-${module.category}`} />
+                    {module.name}
+                  </h3>
                   <p>{module.description}</p>
                 </div>
                 <span className="module-cat">{CATEGORY_LABELS[module.category] ?? module.category}</span>

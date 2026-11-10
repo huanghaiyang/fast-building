@@ -25,6 +25,8 @@ export interface ModuleInfo {
   sockets?: SocketInfo[];
   bbox?: { min: number[]; max: number[] };
   source?: { blend?: string; collection?: string };
+  thumbnail?: string;
+  preview?: string;
 }
 
 export interface StyleInfo {

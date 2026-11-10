@@ -48,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--job", help="任务输入 JSON 的绝对路径")
     parser.add_argument("--module", help="生成单个模块的三维预览")
     parser.add_argument("--module-out", help="模块预览 GLB 的输出路径")
+    parser.add_argument("--thumb-out", help="模块缩略图 PNG 的输出路径")
     parser.add_argument("--smoke", action="store_true", help="生成测试立方体，用于连通性自检")
     return parser.parse_args(argv)
 
@@ -111,18 +112,26 @@ def run_job(job_path: Path) -> int:
     return 0
 
 
-def run_module_preview(module_id: str, out_path: Path) -> int:
+def run_module_preview(module_id: str, out_path: Path, thumb_path: Path | None) -> int:
     import json as json_module
 
     from generator.exporter import export_glb
     from generator.preview import build_module_preview
+    from generator.thumbnail import render_thumbnail
 
     emit("STAGE", "modules", "0.15")
     started = time.perf_counter()
     _, stats = build_module_preview(module_id, ROOT / "data")
 
-    emit("STAGE", "export", "0.80")
+    emit("STAGE", "export", "0.60")
     glb = export_glb(out_path)
+
+    if thumb_path is not None:
+        emit("STAGE", "thumbnail", "0.85")
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        render_thumbnail(thumb_path)
+        stats["thumbnail"] = str(thumb_path)
+
     stats["seconds"] = round(time.perf_counter() - started, 2)
     stats["glb_bytes"] = glb.stat().st_size if glb.exists() else 0
     emit("STATS", json_module.dumps(stats, ensure_ascii=False))
@@ -142,7 +151,8 @@ def main() -> int:
                 if args.module_out
                 else (ROOT / "data" / "previews" / f"{args.module}.glb")
             )
-            return run_module_preview(args.module, out_path)
+            thumb_path = Path(args.thumb_out).resolve() if args.thumb_out else None
+            return run_module_preview(args.module, out_path, thumb_path)
         if job_path is None:
             emit("ERROR", "--job is required")
             return 2

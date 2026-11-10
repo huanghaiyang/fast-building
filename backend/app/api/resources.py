@@ -59,7 +59,11 @@ def health() -> dict:
 
 @router.get("/modules")
 def list_modules() -> list[dict]:
-    return _read_json_dir(MODULES_DIR)
+    items = _read_json_dir(MODULES_DIR)
+    for item in items:
+        item["thumbnail"] = f"/api/modules/{item['id']}/thumbnail.png"
+        item["preview"] = f"/api/modules/{item['id']}/preview.glb"
+    return items
 
 
 @router.get("/modules/{module_id}/preview.glb")
@@ -76,6 +80,24 @@ def module_preview(module_id: str) -> FileResponse:
     return FileResponse(
         path,
         media_type="model/gltf-binary",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.get("/modules/{module_id}/thumbnail.png")
+def module_thumbnail(module_id: str) -> FileResponse:
+    """返回模块缩略图；服务启动后已由后台线程预热，缺失时即时补生成。"""
+    if not previews.is_valid_module(module_id):
+        raise HTTPException(status_code=404, detail=f"未知模块：{module_id}")
+    try:
+        path = previews.ensure_thumbnail(module_id)
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="模块缩略图生成超时") from exc
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail=f"模块缩略图生成失败：{exc}") from exc
+    return FileResponse(
+        path,
+        media_type="image/png",
         headers={"Cache-Control": "no-cache"},
     )
 

@@ -297,12 +297,33 @@ code,
   align-items: flex-start;
 }
 
-.category-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 5px;
-  border-radius: 3px;
+.module-thumb {
+  display: block;
+  width: 78px;
+  height: 58px;
   flex: none;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(120, 158, 196, 0.22), transparent 65%),
+    linear-gradient(180deg, #141d27 0%, #0d141b 100%);
+}
+
+.module-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.category-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: 1px;
   background: var(--accent);
 }
 
