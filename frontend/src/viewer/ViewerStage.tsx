@@ -3,12 +3,14 @@ import {
   BuildingViewer,
   ENVIRONMENTS,
   EnvironmentPreset,
+  NodeInfo,
   SHADOW_QUALITIES,
   ShadowQuality,
   VIEW_AXES,
   ViewerStats,
   ViewerStatus,
 } from "./BuildingViewer";
+import { StudioPanel } from "../panels/StudioPanel";
 
 interface Props {
   url: string | null;
@@ -18,6 +20,10 @@ interface Props {
 export function ViewerStage({ url }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<BuildingViewer | null>(null);
+  const [viewer, setViewer] = useState<BuildingViewer | null>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [nodeList, setNodeList] = useState<NodeInfo[]>([]);
+  const [selectedNode, setSelectedNode] = useState<NodeInfo | null>(null);
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [message, setMessage] = useState<string>("");
   const [stats, setStats] = useState<ViewerStats | null>(null);
@@ -32,11 +38,15 @@ export function ViewerStage({ url }: Props) {
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const viewer = new BuildingViewer(hostRef.current);
-    viewerRef.current = viewer;
+    const instance = new BuildingViewer(hostRef.current);
+    instance.onNodePick = (node) => setSelectedNode(node);
+    viewerRef.current = instance;
+    setViewer(instance);
     return () => {
-      viewer.dispose();
+      instance.onNodePick = null;
+      instance.dispose();
       viewerRef.current = null;
+      setViewer(null);
     };
   }, []);
 
@@ -48,6 +58,9 @@ export function ViewerStage({ url }: Props) {
       (next, msg) => {
         setStatus(next);
         setMessage(msg ?? "");
+        if (next === "ready") {
+          setNodeList(viewerRef.current?.getNodes() ?? []);
+        }
       },
     );
   }, [url]);
@@ -137,6 +150,13 @@ export function ViewerStage({ url }: Props) {
           <button type="button" className="chip-btn" onClick={() => viewerRef.current?.resetView()}>
             重置视角
           </button>
+          <button
+            type="button"
+            className={`chip-btn ${studioOpen ? "active" : ""}`}
+            onClick={() => setStudioOpen((value) => !value)}
+          >
+            实时编辑
+          </button>
         </div>
 
         <div className="toolbar-row">
@@ -186,6 +206,15 @@ export function ViewerStage({ url }: Props) {
           </select>
         </div>
       </div>
+
+      <StudioPanel
+        open={studioOpen}
+        onClose={() => setStudioOpen(false)}
+        viewer={viewer}
+        nodes={nodeList}
+        selectedNode={selectedNode}
+        onSelectNode={(id) => viewer?.selectNode(id)}
+      />
 
       {stats && status === "ready" && (
         <div className="stage-stats">
