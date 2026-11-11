@@ -16,6 +16,7 @@ import {
   NodeInfo,
   NodeMaterialState,
   RoughnessSettings,
+  VolumetricSettings,
 } from "../viewer/BuildingViewer";
 
 interface Props {
@@ -131,6 +132,14 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     viewer?.setRain(rain.intensity);
     viewer?.setWetness(rain.wetness);
   }, [viewer, rain]);
+
+  const [volumetric, setVolumetric] = useState<VolumetricSettings>({
+    enabled: false,
+    intensity: 0.8,
+  });
+  useEffect(() => {
+    viewer?.setVolumetric(volumetric);
+  }, [viewer, volumetric]);
 
   const [clip, setClip] = useState<ClipSettings>({
     enabled: false,
@@ -435,6 +444,26 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
 
         {tab === "fx" && (
           <>
+            <section className="studio-section">
+              <h4>体积光透视</h4>
+              <Toggle
+                label="启用体积光（丁达尔光柱）"
+                checked={volumetric.enabled}
+                onChange={(enabled) => setVolumetric((current) => ({ ...current, enabled }))}
+              />
+              <Slider
+                label="光柱强度"
+                value={volumetric.intensity}
+                min={0}
+                max={2}
+                step={0.02}
+                onChange={(value) => setVolumetric((current) => ({ ...current, intensity: value }))}
+              />
+              <p className="studio-hint">
+                沿太阳方向生成光柱与浮尘，被建筑遮挡后形成体积透视；切换环境会同步改变光向。
+              </p>
+            </section>
+
             <section className="studio-section">
               <h4>雨天</h4>
               <Slider

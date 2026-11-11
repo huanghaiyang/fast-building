@@ -24,6 +24,8 @@ export function ViewerStage({ url }: Props) {
   const [studioOpen, setStudioOpen] = useState(false);
   const [nodeList, setNodeList] = useState<NodeInfo[]>([]);
   const [selectedNode, setSelectedNode] = useState<NodeInfo | null>(null);
+  const [firstPerson, setFirstPerson] = useState(false);
+  const [fpLocked, setFpLocked] = useState(false);
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const [message, setMessage] = useState<string>("");
   const [stats, setStats] = useState<ViewerStats | null>(null);
@@ -40,15 +42,23 @@ export function ViewerStage({ url }: Props) {
     if (!hostRef.current) return;
     const instance = new BuildingViewer(hostRef.current);
     instance.onNodePick = (node) => setSelectedNode(node);
+    instance.onFirstPersonChange = (enabled) => setFirstPerson(enabled);
+    instance.onFirstPersonLock = (locked) => setFpLocked(locked);
     viewerRef.current = instance;
     setViewer(instance);
     return () => {
       instance.onNodePick = null;
+      instance.onFirstPersonChange = null;
+      instance.onFirstPersonLock = null;
       instance.dispose();
       viewerRef.current = null;
       setViewer(null);
     };
   }, []);
+
+  useEffect(() => {
+    viewer?.setFirstPerson(firstPerson);
+  }, [viewer, firstPerson]);
 
   useEffect(() => {
     if (!url || !viewerRef.current) return;
@@ -152,6 +162,13 @@ export function ViewerStage({ url }: Props) {
           </button>
           <button
             type="button"
+            className={`chip-btn ${firstPerson ? "active" : ""}`}
+            onClick={() => setFirstPerson((value) => !value)}
+          >
+            第一人称
+          </button>
+          <button
+            type="button"
             className={`chip-btn ${studioOpen ? "active" : ""}`}
             onClick={() => setStudioOpen((value) => !value)}
           >
@@ -215,6 +232,16 @@ export function ViewerStage({ url }: Props) {
         selectedNode={selectedNode}
         onSelectNode={(id) => viewer?.selectNode(id)}
       />
+
+      {firstPerson && !fpLocked && (
+        <div className="fp-hint">
+          <span>点击画面进入第一人称 · W A S D 移动 · Shift 加速 · ESC 退出</span>
+          <button type="button" className="chip-btn" onClick={() => setFirstPerson(false)}>
+            退出
+          </button>
+        </div>
+      )}
+      {firstPerson && fpLocked && <div className="fp-crosshair" aria-hidden="true" />}
 
       {stats && status === "ready" && (
         <div className="stage-stats">

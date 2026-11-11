@@ -297,3 +297,194 @@ export class VoxelFracture {
     this.clear();
   }
 }
+
+/**
+ * 体积光：沿太阳方向生成若干可面向相机的加色光柱，并附带缓慢漂浮的浮尘。
+ * 光柱参与深度测试，会被建筑遮挡，从而产生体积透视感。
+ */
+export class VolumetricLight {
+  readonly group = new THREE.Group();
+  private shafts: Array<{ mesh: THREE.Mesh; axis: THREE.Vector3 }> = [];
+  private dust: THREE.Points | null = null;
+  private dustMaterial: THREE.PointsMaterial | null = null;
+  private dustTexture: THREE.Texture | null = null;
+  private readonly uniforms = {
+    uTime: { value: 0 },
+    uIntensity: { value: 0 },
+  };
+  private intensity = 0;
+
+  constructor() {
+    this.group.visible = false;
+    this.group.renderOrder = 1;
+  }
+
+  setIntensity(value: number): void {
+    this.intensity = Math.max(0, Math.min(2, value));
+    this.uniforms.uIntensity.value = this.intensity;
+    if (this.dustMaterial) this.dustMaterial.opacity = this.intensity * 0.75;
+    this.group.visible = this.intensity > 0.001;
+  }
+
+  setup(sun: THREE.Vector3, target: THREE.Vector3, span: number): void {
+    this.clear();
+    const direction = target.clone().sub(sun);
+    const length = Math.max(12, direction.length() * 1.06);
+    direction.normalize();
+    const yAxis = direction.clone().negate();
+    const xAxis = new THREE.Vector3().crossVectors(yAxis, new THREE.Vector3(0, 1, 0));
+    if (xAxis.lengthSq() < 1e-4) xAxis.set(1, 0, 0);
+    xAxis.normalize();
+    const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+    const center = sun.clone().addScaledVector(direction, length * 0.5);
+    const width = Math.max(span, 16) * 0.52;
+
+    const vertexShader = [
+      "varying vec2 vUv;",
+      "void main() {",
+      "  vUv = uv;",
+      "  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );",
+      "}",
+    ].join("\n");
+
+    const fragmentShader = [
+      "uniform float uTime;",
+      "uniform float uIntensity;",
+      "varying vec2 vUv;",
+      "float hash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }",
+      "float noise( vec2 p ) {",
+      "  vec2 i = floor( p );",
+      "  vec2 f = fract( p );",
+      "  vec2 u = f * f * ( 3.0 - 2.0 * f );",
+      "  return mix( mix( hash( i ), hash( i + vec2( 1.0, 0.0 ) ), u.x ),",
+      "              mix( hash( i + vec2( 0.0, 1.0 ) ), hash( i + vec2( 1.0, 1.0 ) ), u.x ), u.y );",
+      "}",
+      "void main() {",
+      "  float edge = smoothstep( 0.0, 0.34, vUv.x ) * smoothstep( 1.0, 0.66, vUv.x );",
+      "  float fade = pow( vUv.y, 1.25 );",
+      "  float grain = noise( vec2( vUv.x * 7.0, vUv.y * 2.4 - uTime * 0.12 ) );",
+      "  float alpha = edge * fade * ( 0.35 + 0.65 * grain ) * uIntensity * 0.26;",
+      "  vec3 color = mix( vec3( 0.78, 0.84, 1.0 ), vec3( 1.0, 0.9, 0.7 ), vUv.y );",
+      "  if ( alpha < 0.002 ) discard;",
+      "  gl_FragColor = vec4( color, alpha );",
+      "}",
+    ].join("\n");
+
+    for (let i = 0; i < 6; i += 1) {
+      const material = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader,
+        fragmentShader,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+      const offset = (i - 2.5) * span * 0.1;
+      mesh.position
+        .copy(center)
+        .addScaledVector(xAxis, offset)
+        .addScaledVector(zAxis, offset * 0.55);
+      mesh.scale.set(width * (0.72 + (i % 3) * 0.16), length, 1);
+      mesh.renderOrder = 1;
+      this.group.add(mesh);
+      this.shafts.push({ mesh, axis: yAxis.clone() });
+    }
+
+    // 浮尘
+    const dustCount = 700;
+    const positions = new Float32Array(dustCount * 3);
+    const dustColor = new THREE.Color(0xffe6bd);
+    for (let i = 0; i < dustCount; i += 1) {
+      const along = (Math.random() - 0.5) * length;
+      const lateralX = (Math.random() - 0.5) * width * 0.9;
+      const lateralZ = (Math.random() - 0.5) * width * 0.9;
+      positions[i * 3] =
+        center.x + direction.x * along + xAxis.x * lateralX + zAxis.x * lateralZ;
+      positions[i * 3 + 1] =
+        center.y + direction.y * along + xAxis.y * lateralX + zAxis.y * lateralZ;
+      positions[i * 3 + 2] =
+        center.z + direction.z * along + xAxis.z * lateralX + zAxis.z * lateralZ;
+    }
+    const dustGeometry = new THREE.BufferGeometry();
+    dustGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    this.dustTexture = this.createDustTexture();
+    this.dustMaterial = new THREE.PointsMaterial({
+      color: dustColor,
+      size: 0.16,
+      map: this.dustTexture,
+      transparent: true,
+      opacity: this.intensity * 0.75,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    this.dust = new THREE.Points(dustGeometry, this.dustMaterial);
+    this.dust.renderOrder = 1;
+    this.group.add(this.dust);
+
+    this.group.visible = this.intensity > 0.001;
+  }
+
+  private createDustTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, "rgba(255,255,255,1)");
+      gradient.addColorStop(0.4, "rgba(255,255,255,0.6)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  update(delta: number, camera: THREE.Camera): void {
+    if (!this.group.visible) return;
+    this.uniforms.uTime.value += delta;
+    const toCamera = new THREE.Vector3();
+    const x = new THREE.Vector3();
+    const z = new THREE.Vector3();
+    const basis = new THREE.Matrix4();
+    for (const shaft of this.shafts) {
+      toCamera.copy(camera.position).sub(shaft.mesh.position);
+      x.crossVectors(shaft.axis, toCamera);
+      if (x.lengthSq() < 1e-6) continue;
+      x.normalize();
+      z.crossVectors(x, shaft.axis).normalize();
+      basis.makeBasis(x, shaft.axis, z);
+      shaft.mesh.quaternion.setFromRotationMatrix(basis);
+    }
+  }
+
+  private clear(): void {
+    for (const shaft of this.shafts) {
+      this.group.remove(shaft.mesh);
+      shaft.mesh.geometry.dispose();
+      (shaft.mesh.material as THREE.Material).dispose();
+    }
+    this.shafts = [];
+    if (this.dust) {
+      this.group.remove(this.dust);
+      this.dust.geometry.dispose();
+    }
+    this.dust = null;
+    this.dustMaterial?.dispose();
+    this.dustMaterial = null;
+    this.dustTexture?.dispose();
+    this.dustTexture = null;
+    this.group.visible = false;
+  }
+
+  dispose(): void {
+    this.clear();
+  }
+}
+

@@ -10,7 +10,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-import { RainSystem, VoxelFracture } from "./effects";
+import { RainSystem, VolumetricLight, VoxelFracture } from "./effects";
 import {
   GrungeUniforms,
   createGrungeUniforms,
@@ -96,6 +96,11 @@ export interface FractureSettings {
   enabled: boolean;
   amount: number;
   cell: number;
+}
+
+export interface VolumetricSettings {
+  enabled: boolean;
+  intensity: number;
 }
 
 export interface RoughnessSettings {
@@ -307,6 +312,24 @@ export class BuildingViewer {
   private fractureSettings: FractureSettings = { enabled: false, amount: 0, cell: 0.42 };
   private fractureCell = 0;
 
+  private readonly volumetric = new VolumetricLight();
+  private volumetricSettings: VolumetricSettings = { enabled: false, intensity: 0.8 };
+
+  // ---------------------------------------------------------------- 第一人称
+  onFirstPersonChange: ((enabled: boolean) => void) | null = null;
+  onFirstPersonLock: ((locked: boolean) => void) | null = null;
+  private firstPerson = false;
+  private fpLocked = false;
+  private readonly fpKeys = new Set<string>();
+  private readonly fpSaved = {
+    position: new THREE.Vector3(),
+    target: new THREE.Vector3(),
+    fov: 38,
+  };
+  private readonly fpMove = new THREE.Vector3();
+  private fpYaw = 0;
+  private fpPitch = 0;
+
   private readonly blockGroup = new THREE.Group();
   private readonly blocks: THREE.Mesh[] = [];
   private blockSeq = 0;
@@ -358,6 +381,7 @@ export class BuildingViewer {
     this.applyEnvironment("midday");
 
     this.scene.add(this.rain.group);
+    this.scene.add(this.volumetric.group);
     this.scene.add(this.voxel.group);
     this.scene.add(this.blockGroup);
 
@@ -510,6 +534,7 @@ export class BuildingViewer {
     }
     this.scene.environmentIntensity = this.ambientMultiplier;
     this.applyWetness();
+    this.updateVolumetricAnchor();
   }
 
   private resize(): void {
@@ -526,7 +551,9 @@ export class BuildingViewer {
     this.animationId = requestAnimationFrame(this.animate);
     const delta = this.clock.getDelta();
     this.rain.update(delta);
-    this.controls.update();
+    this.volumetric.update(delta, this.camera);
+    this.updateFirstPerson(delta);
+    if (!this.firstPerson) this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -618,6 +645,7 @@ export class BuildingViewer {
         this.rain.setCenter(this.rainCenter);
         this.clipSettings.position = this.clampClipPosition(this.clipSettings.position);
         this.fractureCell = 0;
+        this.updateVolumetricAnchor();
         this.applyStudioState();
         this.onNodePick?.(null);
 
@@ -976,6 +1004,30 @@ export class BuildingViewer {
     }
   }
 
+  // ================================================================ 体积光
+  setVolumetric(patch: Partial<VolumetricSettings>): void {
+    const wasEnabled = this.volumetricSettings.enabled;
+    this.volumetricSettings = { ...this.volumetricSettings, ...patch };
+    if (this.volumetricSettings.enabled && !wasEnabled) {
+      this.updateVolumetricAnchor();
+    }
+    this.volumetric.setIntensity(
+      this.volumetricSettings.enabled ? this.volumetricSettings.intensity : 0,
+    );
+  }
+
+  /** 光柱锚定在太阳灯与建筑体心之间，模型或环境变化时重建。 */
+  private updateVolumetricAnchor(): void {
+    const size = this.modelBox.getSize(new THREE.Vector3());
+    const target = this.modelBox.getCenter(new THREE.Vector3());
+    target.y = Math.max(this.modelBox.min.y + 0.6, this.modelBox.max.y * 0.35);
+    const span = Math.max(size.length(), 16);
+    this.volumetric.setup(this.key.position.clone(), target, span);
+    this.volumetric.setIntensity(
+      this.volumetricSettings.enabled ? this.volumetricSettings.intensity : 0,
+    );
+  }
+
   // ================================================================ 剖切
   getClipRange(axis: ClipAxis = this.clipSettings.axis): [number, number] {
     const min = this.modelBox.min[axis];
@@ -1232,9 +1284,137 @@ export class BuildingViewer {
     this.onBlocksChanged?.(this.listBlocks());
   }
 
+  // ================================================================ 第一人称
+  setFirstPerson(enabled: boolean): void {
+    if (this.firstPerson === enabled) return;
+    this.firstPerson = enabled;
+    const dom = this.renderer.domElement;
+
+    if (enabled) {
+      this.fpSaved.position.copy(this.camera.position);
+      this.fpSaved.target.copy(this.controls.target);
+      this.fpSaved.fov = this.camera.fov;
+      this.controls.enabled = false;
+      this.controls.autoRotate = false;
+      this.fpKeys.clear();
+      this.fpLocked = false;
+
+      const size = this.modelBox.getSize(new THREE.Vector3());
+      const center = this.modelBox.getCenter(new THREE.Vector3());
+      const offset = Math.max(size.z * 0.35 + 2.5, 3.5);
+      this.camera.position.set(center.x, 1.65, this.modelBox.max.z + offset);
+      this.camera.rotation.order = "YXZ";
+      this.fpYaw = 0;
+      this.fpPitch = 0;
+      this.applyFirstPersonRotation();
+      this.camera.fov = 72;
+      this.camera.updateProjectionMatrix();
+
+      window.addEventListener("keydown", this.handleFpKeyDown);
+      window.addEventListener("keyup", this.handleFpKeyUp);
+      window.addEventListener("pointermove", this.handleFpMouseMove);
+      dom.addEventListener("click", this.handleFpClick);
+      document.addEventListener("pointerlockchange", this.handlePointerLockChange);
+      dom.style.cursor = "crosshair";
+    } else {
+      this.fpKeys.clear();
+      window.removeEventListener("keydown", this.handleFpKeyDown);
+      window.removeEventListener("keyup", this.handleFpKeyUp);
+      window.removeEventListener("pointermove", this.handleFpMouseMove);
+      dom.removeEventListener("click", this.handleFpClick);
+      document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
+      if (document.pointerLockElement === dom) document.exitPointerLock();
+      this.fpLocked = false;
+      this.camera.rotation.set(0, 0, 0);
+      this.camera.position.copy(this.fpSaved.position);
+      this.controls.target.copy(this.fpSaved.target);
+      this.camera.fov = this.fpSaved.fov;
+      this.camera.updateProjectionMatrix();
+      this.controls.enabled = true;
+      this.controls.enableRotate = !this.viewLocked;
+      this.controls.enablePan = !this.viewLocked;
+      this.controls.update();
+      dom.style.cursor = "";
+      this.onFirstPersonLock?.(false);
+    }
+    this.onFirstPersonChange?.(enabled);
+  }
+
+  private applyFirstPersonRotation(): void {
+    this.camera.rotation.set(this.fpPitch, this.fpYaw, 0, "YXZ");
+  }
+
+  private updateFirstPerson(delta: number): void {
+    if (!this.firstPerson || !this.fpLocked) return;
+    const speed =
+      this.fpKeys.has("ShiftLeft") || this.fpKeys.has("ShiftRight") ? 7.5 : 3.2;
+    const step = Math.min(delta, 0.05) * speed;
+    const sin = Math.sin(this.fpYaw);
+    const cos = Math.cos(this.fpYaw);
+    this.fpMove.set(0, 0, 0);
+    if (this.fpKeys.has("KeyW") || this.fpKeys.has("ArrowUp")) {
+      this.fpMove.x -= sin;
+      this.fpMove.z -= cos;
+    }
+    if (this.fpKeys.has("KeyS") || this.fpKeys.has("ArrowDown")) {
+      this.fpMove.x += sin;
+      this.fpMove.z += cos;
+    }
+    if (this.fpKeys.has("KeyA") || this.fpKeys.has("ArrowLeft")) {
+      this.fpMove.x -= cos;
+      this.fpMove.z += sin;
+    }
+    if (this.fpKeys.has("KeyD") || this.fpKeys.has("ArrowRight")) {
+      this.fpMove.x += cos;
+      this.fpMove.z -= sin;
+    }
+    if (this.fpMove.lengthSq() > 0) {
+      this.fpMove.normalize().multiplyScalar(step);
+      this.camera.position.add(this.fpMove);
+    }
+    this.camera.position.y = 1.65;
+  }
+
+  private handleFpClick = (): void => {
+    if (!this.firstPerson) return;
+    if (document.pointerLockElement !== this.renderer.domElement) {
+      void this.renderer.domElement.requestPointerLock();
+    }
+  };
+
+  private handlePointerLockChange = (): void => {
+    const locked = document.pointerLockElement === this.renderer.domElement;
+    this.fpLocked = locked;
+    this.onFirstPersonLock?.(locked);
+    if (!locked && this.firstPerson) {
+      this.setFirstPerson(false);
+    }
+  };
+
+  private handleFpMouseMove = (event: PointerEvent): void => {
+    if (!this.firstPerson || document.pointerLockElement !== this.renderer.domElement) return;
+    this.fpYaw -= event.movementX * 0.0025;
+    this.fpPitch = Math.max(-1.32, Math.min(1.32, this.fpPitch - event.movementY * 0.0022));
+    this.applyFirstPersonRotation();
+  };
+
+  private handleFpKeyDown = (event: KeyboardEvent): void => {
+    const code = event.code;
+    if (code.startsWith("Arrow") || code === "KeyW" || code === "KeyA" || code === "KeyS" || code === "KeyD") {
+      if (code.startsWith("Arrow")) event.preventDefault();
+      this.fpKeys.add(code);
+    } else if (code === "ShiftLeft" || code === "ShiftRight") {
+      this.fpKeys.add(code);
+    }
+  };
+
+  private handleFpKeyUp = (event: KeyboardEvent): void => {
+    this.fpKeys.delete(event.code);
+  };
+
   // ================================================================ 指针交互
   private handlePointerDown = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || this.firstPerson) return;
     this.pointerState = { x: event.clientX, y: event.clientY, active: true, moved: false };
     if (this.clipDragEnabled && this.clipSettings.enabled) {
       this.clipDragging = true;
@@ -1319,11 +1499,13 @@ export class BuildingViewer {
     this.disposed = true;
     cancelAnimationFrame(this.animationId);
     this.resizeObserver.disconnect();
+    if (this.firstPerson) this.setFirstPerson(false);
     this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
     window.removeEventListener("pointermove", this.handlePointerMove);
     window.removeEventListener("pointerup", this.handlePointerUp);
     this.clearModel();
     this.rain.dispose();
+    this.volumetric.dispose();
     this.voxel.dispose();
     this.clipHelper.geometry.dispose();
     (this.clipHelper.material as THREE.Material).dispose();
