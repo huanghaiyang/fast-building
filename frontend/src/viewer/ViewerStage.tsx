@@ -3,6 +3,8 @@ import {
   BuildingViewer,
   ENVIRONMENTS,
   EnvironmentPreset,
+  SHADOW_QUALITIES,
+  ShadowQuality,
   VIEW_AXES,
   ViewerStats,
   ViewerStatus,
@@ -23,6 +25,10 @@ export function ViewerStage({ url }: Props) {
   const [wireframe, setWireframe] = useState(false);
   const [locked, setLocked] = useState(false);
   const [environment, setEnvironment] = useState<EnvironmentPreset>("midday");
+  const [ambient, setAmbient] = useState(1);
+  const [subdivision, setSubdivision] = useState(0);
+  const [shadows, setShadows] = useState(true);
+  const [shadowQuality, setShadowQuality] = useState<ShadowQuality>("medium");
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -61,6 +67,18 @@ export function ViewerStage({ url }: Props) {
   useEffect(() => {
     viewerRef.current?.setLocked(locked);
   }, [locked]);
+
+  useEffect(() => {
+    viewerRef.current?.setAmbient(ambient);
+  }, [ambient]);
+
+  useEffect(() => {
+    viewerRef.current?.setSubdivision(subdivision);
+  }, [subdivision]);
+
+  useEffect(() => {
+    viewerRef.current?.setShadows(shadows, shadowQuality);
+  }, [shadows, shadowQuality]);
 
   return (
     <section className="stage">
@@ -119,6 +137,53 @@ export function ViewerStage({ url }: Props) {
           <button type="button" className="chip-btn" onClick={() => viewerRef.current?.resetView()}>
             重置视角
           </button>
+        </div>
+
+        <div className="toolbar-row">
+          <span className="toolbar-label">环境光</span>
+          <input
+            className="chip-range"
+            type="range"
+            min={0}
+            max={2}
+            step={0.05}
+            value={ambient}
+            onChange={(event) => setAmbient(Number(event.target.value))}
+          />
+          <span className="chip-value">{ambient.toFixed(2)}</span>
+
+          <span className="toolbar-label">细分</span>
+          <select
+            className="chip-select"
+            title="曲面细分仅影响预览，不改变导出模型"
+            value={subdivision}
+            onChange={(event) => setSubdivision(Number(event.target.value))}
+          >
+            <option value={0}>关</option>
+            <option value={1}>1 级</option>
+            <option value={2}>2 级</option>
+          </select>
+
+          <button
+            type="button"
+            className={`chip-btn ${shadows ? "active" : ""}`}
+            onClick={() => setShadows((value) => !value)}
+          >
+            阴影
+          </button>
+          <select
+            className="chip-select"
+            title="阴影贴图分辨率"
+            disabled={!shadows}
+            value={shadowQuality}
+            onChange={(event) => setShadowQuality(event.target.value as ShadowQuality)}
+          >
+            {SHADOW_QUALITIES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

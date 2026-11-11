@@ -540,6 +540,26 @@ code,
   cursor: pointer;
 }
 
+.chip-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chip-range {
+  width: 76px;
+  height: 4px;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.chip-value {
+  min-width: 26px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
 .chip-btn {
   padding: 6px 10px;
   border-radius: 7px;

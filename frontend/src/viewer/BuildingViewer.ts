@@ -10,6 +10,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
+import { subdivideGeometry } from "./subdivide";
+
 export interface ViewerStats {
   meshes: number;
   triangles: number;
@@ -31,6 +33,14 @@ export const VIEW_AXES: Array<{ id: ViewAxis; label: string }> = [
 ];
 
 export type EnvironmentPreset = "midday" | "golden" | "overcast" | "night" | "studio";
+
+export type ShadowQuality = "low" | "medium" | "high";
+
+export const SHADOW_QUALITIES: Array<{ id: ShadowQuality; label: string }> = [
+  { id: "low", label: "低" },
+  { id: "medium", label: "中" },
+  { id: "high", label: "高" },
+];
 
 export const ENVIRONMENTS: Array<{ id: EnvironmentPreset; label: string }> = [
   { id: "midday", label: "晴天正午" },
@@ -152,11 +162,17 @@ export class BuildingViewer {
   private skyTexture: THREE.Texture | null = null;
 
   private model: THREE.Object3D | null = null;
+  private readonly originalGeometries = new Map<THREE.Mesh, THREE.BufferGeometry>();
   private animationId = 0;
   private disposed = false;
   private defaultPosition = new THREE.Vector3(20, 16, 24);
   private defaultTarget = new THREE.Vector3(0, 3, 0);
   private viewDistance = 26;
+
+  private ambientMultiplier = 1;
+  private baseHemiIntensity = 1;
+  private shadowQuality: ShadowQuality = "medium";
+  private subdivisionLevel = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -301,9 +317,10 @@ export class BuildingViewer {
     const [fogColor, near, far] = config.fog;
     this.scene.fog = new THREE.Fog(fogColor, near, far);
 
+    this.baseHemiIntensity = config.hemi.intensity;
     this.hemi.color.set(config.hemi.sky);
     this.hemi.groundColor.set(config.hemi.ground);
-    this.hemi.intensity = config.hemi.intensity;
+    this.hemi.intensity = this.baseHemiIntensity * this.ambientMultiplier;
 
     this.key.color.set(config.key.color);
     this.key.intensity = config.key.intensity;
@@ -328,6 +345,7 @@ export class BuildingViewer {
       // 影棚环境贴图可复用，不能随切换释放
       this.scene.environment = this.ensureStudioTarget().texture;
     }
+    this.scene.environmentIntensity = this.ambientMultiplier;
   }
 
   private resize(): void {
@@ -383,6 +401,7 @@ export class BuildingViewer {
         model.position.y -= box.min.y;
         this.scene.add(model);
         this.model = model;
+        if (this.subdivisionLevel > 0) this.applySubdivision();
 
         const maxDim = Math.max(size.x, size.y, size.z, 1);
         const fitBox = new THREE.Box3().setFromObject(model);
@@ -452,11 +471,14 @@ export class BuildingViewer {
     this.model.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
+        const original = this.originalGeometries.get(mesh);
+        if (original && original !== mesh.geometry) original.dispose();
         mesh.geometry.dispose();
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const material of materials) material?.dispose();
       }
     });
+    this.originalGeometries.clear();
     this.model = null;
   }
 
@@ -508,6 +530,65 @@ export class BuildingViewer {
 
   setEnvironment(preset: EnvironmentPreset): void {
     this.applyEnvironment(preset);
+  }
+
+  /** 环境光倍率：同时缩放半球光与 IBL 强度，范围 0~2。 */
+  setAmbient(multiplier: number): void {
+    this.ambientMultiplier = Math.max(0, Math.min(2, multiplier));
+    this.hemi.intensity = this.baseHemiIntensity * this.ambientMultiplier;
+    this.scene.environmentIntensity = this.ambientMultiplier;
+  }
+
+  /** 阴影开关与质量（分辨率）。切换后需要重新编译材质。 */
+  setShadows(enabled: boolean, quality: ShadowQuality = this.shadowQuality): void {
+    this.shadowQuality = quality;
+    const sizes: Record<ShadowQuality, number> = { low: 1024, medium: 2048, high: 4096 };
+
+    this.renderer.shadowMap.enabled = enabled;
+    this.key.castShadow = enabled;
+    this.key.shadow.mapSize.setScalar(sizes[quality]);
+    if (this.key.shadow.map) {
+      this.key.shadow.map.dispose();
+      this.key.shadow.map = null;
+    }
+    this.model?.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const materials = Array.isArray((child as THREE.Mesh).material)
+        ? ((child as THREE.Mesh).material as THREE.Material[])
+        : [(child as THREE.Mesh).material as THREE.Material];
+      for (const material of materials) {
+        if (material) material.needsUpdate = true;
+      }
+    });
+  }
+
+  /** 曲面细分等级：0 关闭，1~2 级 Loop 细分（仅影响预览，不改变导出模型）。 */
+  setSubdivision(level: number): void {
+    const next = Math.max(0, Math.min(2, Math.floor(level)));
+    if (next === this.subdivisionLevel) return;
+    this.subdivisionLevel = next;
+    this.applySubdivision();
+  }
+
+  private applySubdivision(): void {
+    if (!this.model) return;
+    this.model.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return;
+      const mesh = child as THREE.Mesh;
+      let original = this.originalGeometries.get(mesh);
+      if (!original) {
+        original = mesh.geometry;
+        this.originalGeometries.set(mesh, original);
+      }
+      const previous = mesh.geometry;
+      const next = this.subdivisionLevel > 0 ? subdivideGeometry(original, this.subdivisionLevel) : original;
+      if (previous !== next && previous !== original) previous.dispose();
+      mesh.geometry = next;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        if (material) material.needsUpdate = true;
+      }
+    });
   }
 
   resetView(): void {
