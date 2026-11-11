@@ -68,8 +68,19 @@ class Medieval:
     chimney_count: int = 1
     # 塌毁石屋：残墙断口 + 瓦砾堆 + 烧焦梁架，整栋不生成楼板与屋顶
     collapsed: bool = False
+    # 圆拱石屋废墟：半圆拱券、残墙顶、露明梁架与斜靠木板
+    round_arch: bool = False
+    wall_ruin: bool = False
+    collapsed_beams: bool = False
     # 烧毁的木构农舍：灰泥剥落成炭斑，屋顶只剩一坡茅草一坡石瓦
     burnt: bool = False
+    # 完好哥特礼拜堂：山墙玫瑰窗、扶壁小尖塔与山尖十字
+    rose_window: bool = False
+    pinnacles: bool = False
+    # 童话茅草农舍：窗台花箱、山墙小窗与门口花盆壁灯
+    window_boxes: bool = False
+    gable_window: bool = False
+    door_dressing: bool = False
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Medieval":
@@ -103,6 +114,14 @@ class Medieval:
             chimney_count=min(4, max(1, int(data.get("chimney_count", 1)))),
             collapsed=bool(data.get("collapsed", False)),
             burnt=bool(data.get("burnt", False)),
+            round_arch=bool(data.get("round_arch", False)),
+            wall_ruin=bool(data.get("wall_ruin", False)),
+            collapsed_beams=bool(data.get("collapsed_beams", False)),
+            rose_window=bool(data.get("rose_window", False)),
+            pinnacles=bool(data.get("pinnacles", False)),
+            window_boxes=bool(data.get("window_boxes", False)),
+            gable_window=bool(data.get("gable_window", False)),
+            door_dressing=bool(data.get("door_dressing", False)),
         )
 
 

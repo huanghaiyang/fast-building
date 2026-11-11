@@ -62,6 +62,17 @@ class MedievalSpec(BaseModel):
     collapsed: bool = False
     # 烧毁的木构农舍：炭化墙斑与半覆屋顶
     burnt: bool = False
+    # 完好哥特礼拜堂：山墙玫瑰窗、扶壁小尖塔与山尖十字
+    rose_window: bool = False
+    pinnacles: bool = False
+    # 童话茅草农舍：窗台花箱、山墙小窗与门口花盆壁灯
+    window_boxes: bool = False
+    gable_window: bool = False
+    door_dressing: bool = False
+    # 圆拱石屋废墟：半圆拱券、残墙顶、露明梁架与斜靠木板
+    round_arch: bool = False
+    wall_ruin: bool = False
+    collapsed_beams: bool = False
 
 
 class Footprint(BaseModel):

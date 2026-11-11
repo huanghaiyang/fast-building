@@ -15,31 +15,32 @@ import bmesh
 import bpy
 
 from . import quality
-from .geom.arch import add_opening_pane, arch_strips
+from .geom.arch import add_opening_pane, add_round_arch_pane, arch_strips, round_arch_strips
 from .geom.balcony import build_balcony
 from .geom.bellcote import build_bellcote
 from .geom.burn import build_burnt_roof, build_scorch_patches
-from .geom.buttress import build_buttress
+from .geom.buttress import build_buttress, build_finial_cross, build_pinnacle
 from .geom.chapel import build_bell_tower, build_broken_gable, build_nave_roof
 from .geom.chimney import build_chimney
+from .geom.cottage import build_door_dressing, build_gable_window, build_window_boxes
 from .geom.dormer import build_gable_dormer
 from .geom.foliage import build_vegetation
 from .geom.gable_frame import build_gable_frame
 from .geom.gallery import build_gallery
-from .geom.lancet import build_lancet
+from .geom.lancet import build_lancet, build_rose_window
 from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
 from .geom.plinth import build_plinth
 from .geom.porch import build_thatch_porch
 from .geom.ridge import build_ridge_cap
-from .geom.roof import build_flat_roof, build_gable_roof
-from .geom.ruin import build_collapsed_ruin, build_rubble
+from .geom.roof import build_flat_roof, build_gable_roof, build_open_roof_frame
+from .geom.ruin import build_collapsed_ruin, build_leaning_planks, build_rubble
 from .geom.sign import build_shop_sign
 from .geom.slab import build_slab
 from .geom.stair import build_straight_stair
 from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
-from .geom.wall_panel import Opening, build_wall_panel
+from .geom.wall_panel import Opening, build_wall_panel, ruin_top_profile
 from .geom.watchtower import (
     HOARDING_FLOOR_T,
     LOOKOUT_INSET,
@@ -183,8 +184,9 @@ def _bay_openings(
 ) -> list[Opening]:
     rng = random.Random(f"{spec.seed}:{side}:{floor_index}:{is_center}")
     if floor_index == 0 and side == "front" and is_center and style.get("door", True):
-        door_w = min(spec.openings.door_w, span * 0.6)
-        door_h = min(spec.openings.door_h, wall_height - 0.18)
+        # 样式可覆盖门洞尺寸（石屋废墟的半圆券门比默认门窗更宽更高）
+        door_w = min(float(style.get("door_w", spec.openings.door_w)), span * 0.6)
+        door_h = min(float(style.get("door_h", spec.openings.door_h)), wall_height - 0.18)
         door_x0 = (span - door_w) * 0.5
         door_x1 = (span + door_w) * 0.5
         openings = [Opening(door_x0, door_x1, 0.0, door_h, "door")]
@@ -222,9 +224,17 @@ def _bay_openings(
     return _window_openings(count, span, wall_height, spec, rng)
 
 
-def _side_openings(span: float, wall_height: float, floor_index: int, spec: Spec) -> list[Opening]:
+def _side_openings(
+    span: float,
+    wall_height: float,
+    floor_index: int,
+    spec: Spec,
+    style: dict,
+) -> list[Opening]:
     rng = random.Random(f"{spec.seed}:side:{floor_index}")
-    return _window_openings(1, span, wall_height, spec, rng)
+    # 礼拜堂这类纵向长侧墙可以排多扇窗，默认仍是一扇
+    count = max(1, int(style.get("side_windows", 1)))
+    return _window_openings(count, span, wall_height, spec, rng)
 
 
 def _wall_panel(
@@ -235,21 +245,46 @@ def _wall_panel(
     arched: bool,
     edge_slot: str = "trim",
     scorch: bool = False,
+    top_profile: list[tuple[float, float, float]] | None = None,
+    round_arch: bool = False,
+    glazed: bool = True,
+    window_slot: str = "glass",
 ) -> MeshBuilder:
-    """生成墙板；尖拱模式下用矩形带逼近拱头，并单独补玻璃/门扇面片。"""
+    """生成墙板；拱形模式下用矩形带逼近拱头，并单独补玻璃/门扇面片。"""
     if not arched:
         builder = build_wall_panel(
-            width, height, WALL_THICKNESS, openings, tiles, edge_slot=edge_slot
+            width,
+            height,
+            WALL_THICKNESS,
+            openings,
+            tiles,
+            glazing=glazed,
+            edge_slot=edge_slot,
+            top_profile=top_profile,
+            window_slot=window_slot,
         )
     else:
         strips: list[Opening] = []
         for op in openings:
-            strips.extend(arch_strips(op))
+            strips.extend(round_arch_strips(op) if round_arch else arch_strips(op))
         builder = build_wall_panel(
-            width, height, WALL_THICKNESS, strips, tiles, glazing=False, edge_slot=edge_slot
+            width,
+            height,
+            WALL_THICKNESS,
+            strips,
+            tiles,
+            glazing=False,
+            edge_slot=edge_slot,
+            top_profile=top_profile,
         )
-        for op in openings:
-            add_opening_pane(builder, op, WALL_THICKNESS, arched=True)
+        if glazed:
+            for op in openings:
+                if round_arch:
+                    add_round_arch_pane(builder, op, WALL_THICKNESS, slot=window_slot)
+                else:
+                    add_opening_pane(
+                        builder, op, WALL_THICKNESS, arched=True, slot=window_slot
+                    )
     if scorch:
         # 每面墙用尺寸与洞口位置生成不同的炭化斑块
         key = int((width * 31 + height * 17 + sum(op.x0 for op in openings) * 13) * 100)
@@ -267,6 +302,9 @@ def _wall_builder(
     left_end: bool,
     right_end: bool,
     edge_slot: str = "trim",
+    top_profile: list[tuple[float, float, float]] | None = None,
+    glazed: bool = True,
+    window_slot: str = "glass",
 ) -> MeshBuilder:
     """按开关选择原木墙或普通墙板；只有建筑外墙端才让圆木出挑。"""
     if medieval.log_walls:
@@ -279,7 +317,17 @@ def _wall_builder(
             protrude_right=LOG_CORNER if right_end else 0.0,
         )
     return _wall_panel(
-        width, height, openings, tiles, arched, edge_slot, scorch=medieval.burnt
+        width,
+        height,
+        openings,
+        tiles,
+        arched,
+        edge_slot,
+        scorch=medieval.burnt,
+        top_profile=top_profile,
+        round_arch=medieval.round_arch,
+        glazed=glazed,
+        window_slot=window_slot,
     )
 
 
@@ -288,7 +336,7 @@ def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:
     if not style.get("door", True):
         return None
     bay_width = spec.width / spec.bays
-    door_w = min(spec.openings.door_w, bay_width * 0.6)
+    door_w = min(float(style.get("door_w", spec.openings.door_w)), bay_width * 0.6)
     return (spec.bays // 2 + 0.5) * bay_width, door_w
 
 
@@ -303,7 +351,12 @@ def build_building(
     # 着色与细分策略必须在建对象之前生效，create_object 会逐件套用
     quality.configure(spec.smooth, spec.subdiv)
     medieval = spec.medieval
-    arched = medieval.arch_openings
+    arched = medieval.arch_openings or medieval.round_arch
+    glazed = bool(style.get("glazed", True))
+    # 暖色玻璃：农舍风格把窗户换成暖黄面片，读成屋里点着灯
+    window_slot = str(style.get("window_slot", "glass"))
+    # 尖拱券石环：给尖拱门窗补一圈贯通墙厚的券石，盖住条带近似的台阶
+    arch_ring = bool(style.get("pointed_arch_ring", False))
     trim_slot = style.get("trim_slot", "trim")
     slab_slot = style.get("slab_slot", "trim")
     trim_openings = (
@@ -376,13 +429,21 @@ def build_building(
                 bay == 0,
                 bay == spec.bays - 1,
                 edge_slot=trim_slot,
+                glazed=glazed,
+                window_slot=window_slot,
             )
             objects.append(
                 create_object(front, f"wall_front_f{floor}_b{bay}", mat_lib, collection, (x0, -ext, wall_z), 0.0)
             )
             if trim_openings:
                 trims = build_opening_trims(
-                    front_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                    front_ops,
+                    WALL_THICKNESS,
+                    tiles,
+                    slot=trim_slot,
+                    arched=arched,
+                    round_arch=medieval.round_arch,
+                    arch_ring=arch_ring,
                 )
                 objects.append(
                     create_object(
@@ -408,6 +469,23 @@ def build_building(
                         0.0,
                     )
                 )
+            # 窗台花箱：只在首层正立面，且该开间确实有窗
+            if (
+                medieval.window_boxes
+                and floor == 0
+                and any(op.kind == "window" for op in front_ops)
+            ):
+                boxes = build_window_boxes(front_ops, tiles, seed=spec.seed)
+                objects.append(
+                    create_object(
+                        boxes,
+                        f"window_boxes_front_b{bay}",
+                        mat_lib,
+                        collection,
+                        (x0, -ext, wall_z),
+                        0.0,
+                    )
+                )
 
             back_ops = _bay_openings(bay_width, wall_height, floor, "back", False, spec, style)
             back = _wall_builder(
@@ -420,6 +498,8 @@ def build_building(
                 bay == spec.bays - 1,
                 bay == 0,
                 edge_slot=trim_slot,
+                glazed=glazed,
+                window_slot=window_slot,
             )
             objects.append(
                 create_object(
@@ -433,7 +513,13 @@ def build_building(
             )
             if trim_openings:
                 trims = build_opening_trims(
-                    back_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                    back_ops,
+                    WALL_THICKNESS,
+                    tiles,
+                    slot=trim_slot,
+                    arched=arched,
+                    round_arch=medieval.round_arch,
+                    arch_ring=arch_ring,
                 )
                 objects.append(
                     create_object(
@@ -462,7 +548,13 @@ def build_building(
 
         # 左右侧墙：内缩出墙角，避免与前后面共面产生 z-fighting
         if side_length > 1.2:
-            left_ops = _side_openings(side_length, wall_height, floor, spec)
+            ruin_top = medieval.wall_ruin and floor == spec.floors - 1
+            left_ops = _side_openings(side_length, wall_height, floor, spec, style)
+            left_profile = (
+                ruin_top_profile(side_length, wall_height, left_ops, f"{spec.seed}:left:{floor}")
+                if ruin_top
+                else None
+            )
             left = _wall_builder(
                 side_length,
                 wall_height,
@@ -473,6 +565,9 @@ def build_building(
                 True,
                 True,
                 edge_slot=trim_slot,
+                top_profile=left_profile,
+                glazed=glazed,
+                window_slot=window_slot,
             )
             objects.append(
                 create_object(
@@ -486,7 +581,13 @@ def build_building(
             )
             if trim_openings:
                 trims = build_opening_trims(
-                    left_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                    left_ops,
+                    WALL_THICKNESS,
+                    tiles,
+                    slot=trim_slot,
+                    arched=arched,
+                    round_arch=medieval.round_arch,
+                    arch_ring=arch_ring,
                 )
                 objects.append(
                     create_object(
@@ -513,7 +614,12 @@ def build_building(
                     )
                 )
 
-            right_ops = _side_openings(side_length, wall_height, floor, spec)
+            right_ops = _side_openings(side_length, wall_height, floor, spec, style)
+            right_profile = (
+                ruin_top_profile(side_length, wall_height, right_ops, f"{spec.seed}:right:{floor}")
+                if ruin_top
+                else None
+            )
             right = _wall_builder(
                 side_length,
                 wall_height,
@@ -524,6 +630,9 @@ def build_building(
                 True,
                 True,
                 edge_slot=trim_slot,
+                top_profile=right_profile,
+                glazed=glazed,
+                window_slot=window_slot,
             )
             objects.append(
                 create_object(
@@ -537,7 +646,13 @@ def build_building(
             )
             if trim_openings:
                 trims = build_opening_trims(
-                    right_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                    right_ops,
+                    WALL_THICKNESS,
+                    tiles,
+                    slot=trim_slot,
+                    arched=arched,
+                    round_arch=medieval.round_arch,
+                    arch_ring=arch_ring,
                 )
                 objects.append(
                     create_object(
@@ -567,51 +682,65 @@ def build_building(
         # 哥特石扶壁：前后立面按开间分界，侧墙落在四角与跨中
         if medieval.buttresses:
             pier = build_buttress(wall_height, tiles)
-            for index, px in enumerate(bay * bay_width for bay in range(1, spec.bays)):
-                objects.append(
-                    create_object(
-                        pier,
-                        f"buttress_front_f{floor}_{index}",
-                        mat_lib,
-                        collection,
-                        (px - ext, -ext, wall_z),
-                        0.0,
-                    )
+            corner_piers = bool(style.get("buttress_corners"))
+            # (名称, x, y, 绕 z 的旋转)；转角墩只在需要时补
+            placements: list[tuple[str, float, float, float]] = []
+            front_xs = [bay * bay_width for bay in range(1, spec.bays)]
+            if corner_piers:
+                front_xs = [0.0, *front_xs, floor_w]
+            for index, px in enumerate(front_xs):
+                placements.append((f"front_f{floor}_{index}", px - ext, -ext, 0.0))
+                placements.append(
+                    (f"back_f{floor}_{index}", px - ext, spec.depth + ext, math.pi)
                 )
-                objects.append(
-                    create_object(
-                        pier,
-                        f"buttress_back_f{floor}_{index}",
-                        mat_lib,
-                        collection,
-                        (px - ext, spec.depth + ext, wall_z),
-                        math.pi,
-                    )
-                )
+
             side_positions = [0.3, side_length - 0.3]
             if side_length > 5.4:
                 side_positions[1:1] = [side_length * 0.36, side_length * 0.64]
+            if corner_piers and side_length > 4.0:
+                # 转角已由前后立面的转角墩承担，侧墙只留跨中，避免角部叠成一堆
+                side_positions = side_positions[1:-1]
             for index, u in enumerate(side_positions):
-                objects.append(
-                    create_object(
-                        pier,
-                        f"buttress_left_f{floor}_{index}",
-                        mat_lib,
-                        collection,
-                        (-ext, spec.depth + ext - WALL_THICKNESS - u, wall_z),
+                placements.append(
+                    (
+                        f"left_f{floor}_{index}",
+                        -ext,
+                        spec.depth + ext - WALL_THICKNESS - u,
                         -math.pi / 2,
                     )
                 )
-                objects.append(
-                    create_object(
-                        pier,
-                        f"buttress_right_f{floor}_{index}",
-                        mat_lib,
-                        collection,
-                        (spec.width + ext, -ext + WALL_THICKNESS + u, wall_z),
+                placements.append(
+                    (
+                        f"right_f{floor}_{index}",
+                        spec.width + ext,
+                        -ext + WALL_THICKNESS + u,
                         math.pi / 2,
                     )
                 )
+
+            for name, px, py, rot in placements:
+                objects.append(
+                    create_object(
+                        pier, f"buttress_{name}", mat_lib, collection, (px, py, wall_z), rot
+                    )
+                )
+
+            # 扶壁顶上的小尖塔：只做到顶层，转角墩与跨中墩都立一枚
+            if medieval.pinnacles and floor == spec.floors - 1:
+                pinnacle = build_pinnacle(
+                    tiles, height=max(1.05, min(1.85, wall_height * 0.32))
+                )
+                for name, px, py, rot in placements:
+                    objects.append(
+                        create_object(
+                            pinnacle,
+                            f"pinnacle_{name}",
+                            mat_lib,
+                            collection,
+                            (px, py, wall_z + wall_height),
+                            rot,
+                        )
+                    )
 
         # 阳台（二层及以上）
         if floor >= 1 and spec.balcony and style.get("balcony", True):
@@ -680,6 +809,12 @@ def build_building(
         plinth = build_plinth(spec.width, spec.depth, 0.40, 0.45, 0.40, tiles, gaps, step)
         objects.append(create_object(plinth, "plinth_stone", mat_lib, collection))
 
+    # 门口陈设：两侧石花盆 + 门旁暖光壁灯
+    if medieval.door_dressing and door is not None:
+        door_cx, door_w = door
+        dressing = build_door_dressing(door_cx, door_w, tiles, seed=spec.seed)
+        objects.append(create_object(dressing, "door_dressing", mat_lib, collection))
+
     if medieval.porch and door is not None:
         door_cx, door_w = door
         bay_width = spec.width / spec.bays
@@ -703,6 +838,19 @@ def build_building(
             ivy_height=medieval.ivy_height,
         )
         objects.append(create_object(veg, "vegetation", mat_lib, collection))
+
+    # 塌落梁架：墙边斜靠的木板与地上的倒伏断板
+    if medieval.collapsed_beams:
+        planks = build_leaning_planks(
+            spec.width,
+            spec.depth,
+            wall_height,
+            tiles,
+            spec.seed,
+            door,
+            slot="log",
+        )
+        objects.append(create_object(planks, "fallen_planks", mat_lib, collection))
 
     # 屋顶：按顶层（含悬挑）轮廓生成
     top_ext = jetty_step * (spec.floors - 1)
@@ -822,6 +970,24 @@ def build_building(
 
         roof_top = roof_z + 0.18
         roof_half = nave_half
+    elif medieval.collapsed_beams:
+        # 圆拱石屋废墟：屋面石板全部塌落，只剩破损山墙与脊梁、檐檩、椽条
+        roof = build_open_roof_frame(
+            roof_w,
+            roof_d,
+            roof_z,
+            spec.roof_pitch,
+            roof_overhang,
+            tiles,
+            seed=spec.seed,
+            gable_slot="facade",
+            timber_slot="log",
+        )
+        objects.append(
+            create_object(roof, "roof_frame", mat_lib, collection, (-top_ext, -top_ext, 0.0))
+        )
+        roof_top = roof_z + 0.20
+        roof_half = (roof_w + 2.0 * roof_overhang) * 0.5
     else:
         if medieval.burnt:
             # 烧毁：一坡残存茅草、一坡残存石瓦，上部缺失，露出炭黑椽条与山墙木架
@@ -839,9 +1005,9 @@ def build_building(
             roof_top = roof_z + math.tan(math.radians(spec.roof_pitch)) * roof_half
             roof_overhang = overhang
         elif medieval.thatch_roof:
-            # 厚茅草：0.30 m 草层 + 0.55 m 出檐，屋顶体量不超过墙体
-            thickness = 0.30
-            overhang = 0.55
+            # 厚茅草：默认 0.30 m 草层 + 0.55 m 出檐，童话农舍可在样式里加厚加大
+            thickness = float(style.get("thatch_thickness", 0.30))
+            overhang = float(style.get("thatch_overhang", 0.55))
             # 半木构的山墙不做成草面，而是贴外墙材质的三角墙 + 外露木架
             framed_gable = medieval.timber_frame and not medieval.log_walls
             gable_window = (
@@ -862,6 +1028,7 @@ def build_building(
                 gable_overhang=0.02 if framed_gable else 0.18,
                 fringe=0.16 if framed_gable else 0.10,
                 thatch_ridge=framed_gable,
+                rake_roll=thickness * 0.42 if framed_gable else 0.0,
                 shingle_band=(0.33, 0.60) if medieval.shingle_band else None,
             )
             roof_top = roof_z + thickness
@@ -888,6 +1055,22 @@ def build_building(
                         math.pi,
                     )
                 )
+                # 山墙小窗＋窗下花箱：贴在木架三角墙上
+                if medieval.gable_window:
+                    window = build_gable_window(tiles, seed=spec.seed)
+                    objects.append(
+                        create_object(
+                            window,
+                            "gable_window",
+                            mat_lib,
+                            collection,
+                            (
+                                roof_w * 0.5 - top_ext,
+                                -top_ext - 0.13,
+                                roof_z + rise * 0.30,
+                            ),
+                        )
+                    )
         else:
             roof = build_gable_roof(
                 roof_w,
@@ -899,6 +1082,7 @@ def build_building(
                 tiles,
                 ruin=0.6 if medieval.ruined_roof else 0.0,
                 seed=spec.seed,
+                gable_ruin=0.55 if medieval.wall_ruin else 0.0,
             )
         objects.append(
             create_object(roof, "roof", mat_lib, collection, (-top_ext, -top_ext, 0.0))
@@ -966,6 +1150,65 @@ def build_building(
                         math.pi,
                     )
                 )
+
+        # 山墙玫瑰窗与山尖石十字：完好哥特礼拜堂的正立面
+        if medieval.rose_window and spec.roof == "gable" and not (
+            medieval.thatch_roof
+            or medieval.burnt
+            or medieval.nave_roof
+            or medieval.collapsed_beams
+        ):
+            gable_rise = math.tan(math.radians(spec.roof_pitch)) * roof_half
+            radius = min(roof_w * 0.16, gable_rise * 0.30)
+            if gable_rise > 2.2 and radius > 0.5:
+                rose = build_rose_window(tiles, radius, slot=trim_slot)
+                rose_z = roof_top + gable_rise * 0.44
+                # 山墙面即屋顶的前后轮廓面，比墙体再挑出 0.45 m 檐口
+                gable_front_y = -top_ext - 0.45
+                gable_back_y = -top_ext + roof_d + 0.45
+                objects.append(
+                    create_object(
+                        rose,
+                        "rose_window_front",
+                        mat_lib,
+                        collection,
+                        (roof_w * 0.5 - top_ext, gable_front_y, rose_z),
+                    )
+                )
+                objects.append(
+                    create_object(
+                        rose,
+                        "rose_window_back",
+                        mat_lib,
+                        collection,
+                        (roof_w * 0.5 - top_ext, gable_back_y, rose_z),
+                        math.pi,
+                    )
+                )
+                if medieval.pinnacles:
+                    cross = build_finial_cross(
+                        tiles, height=max(0.5, min(0.9, gable_rise * 0.13)), slot=trim_slot
+                    )
+                    apex_z = roof_top + gable_rise
+                    objects.append(
+                        create_object(
+                            cross,
+                            "gable_cross_front",
+                            mat_lib,
+                            collection,
+                            (roof_w * 0.5 - top_ext, gable_front_y + 0.05, apex_z - 0.05),
+                        )
+                    )
+                    objects.append(
+                        create_object(
+                            cross,
+                            "gable_cross_back",
+                            mat_lib,
+                            collection,
+                            (roof_w * 0.5 - top_ext, gable_back_y - 0.05, apex_z - 0.05),
+                            math.pi,
+                        )
+                    )
 
         # 石钟塔：立在屋脊靠前的位置，塔脚埋进屋面
         if medieval.bellcote and spec.roof == "gable" and not medieval.thatch_roof:

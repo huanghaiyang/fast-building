@@ -356,6 +356,7 @@ def build_thatch_roof(
     gable_overhang: float = 0.18,
     fringe: float = 0.0,
     thatch_ridge: bool = False,
+    rake_roll: float = 0.0,
     shingle_band: tuple[float, float] | None = None,
     band_slot: str = "roof",
 ) -> MeshBuilder:
@@ -408,6 +409,19 @@ def build_thatch_roof(
     lip = thickness * 0.5
     add_cylinder_y(builder, y0, y1, x_left, z + lip, lip, "thatch")
     add_cylinder_y(builder, y0, y1, x_right, z + lip, lip, "thatch")
+
+    # 山墙滚边：沿两条坡边各压一根粗草捆，山墙一端才有童话茅草屋那种圆润草边
+    if rake_roll > 0.0:
+        for y_face in (y0 + 0.01, y1 - 0.01):
+            for x_eave in (x_left, x_right):
+                add_tube(
+                    builder,
+                    (x_eave, y_face, z + thickness * 0.5),
+                    (cx, y_face, z_ridge - thickness * 0.1),
+                    rake_roll,
+                    "thatch",
+                    segments=8,
+                )
 
     # 坡面中段的石瓦腰带：t 从檐口(0)到屋脊(1)
     if shingle_band is not None:

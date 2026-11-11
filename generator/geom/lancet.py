@@ -133,3 +133,138 @@ def build_lancet(
         )
 
     return builder
+
+
+# --------------------------------------------------------------------------- 玫瑰窗
+ROSE_SEGMENTS = 16
+ROSE_FOILS = 8
+ROSE_Y_FRONT = -0.075
+ROSE_Y_BACK = 0.02
+
+
+def _slab(
+    builder: MeshBuilder,
+    corners: list[tuple[float, float]],
+    slot: str,
+    y_front: float = ROSE_Y_FRONT,
+    y_back: float = ROSE_Y_BACK,
+) -> None:
+    """把 XZ 平面上的四边形沿墙厚方向拉成一块石板。"""
+    front = [(x, y_front, z) for x, z in corners]
+    back = [(x, y_back, z) for x, z in corners]
+    builder.add_face(front, slot)
+    builder.add_face(list(reversed(back)), slot)
+    for index in range(4):
+        a = front[index]
+        b = front[(index + 1) % 4]
+        a2 = back[index]
+        b2 = back[(index + 1) % 4]
+        builder.add_face([a, b, b2, a2], slot)
+
+
+def _ring(
+    builder: MeshBuilder,
+    cx: float,
+    cz: float,
+    radius: float,
+    width: float,
+    slot: str,
+    segments: int = ROSE_SEGMENTS,
+    alternate: float = 0.0,
+    y_front: float = ROSE_Y_FRONT,
+    y_back: float = ROSE_Y_BACK,
+) -> None:
+    """圆环石券；alternate > 0 时相邻券石外沿深浅交替，读成一块块分开的石头。"""
+    inner = max(0.02, radius - width)
+    for index in range(segments):
+        t0 = 2.0 * math.pi * index / segments
+        t1 = 2.0 * math.pi * (index + 1) / segments
+        outer = radius - (alternate if index % 2 else 0.0)
+        corners = [
+            (cx + inner * math.cos(t0), cz + inner * math.sin(t0)),
+            (cx + outer * math.cos(t0), cz + outer * math.sin(t0)),
+            (cx + outer * math.cos(t1), cz + outer * math.sin(t1)),
+            (cx + inner * math.cos(t1), cz + inner * math.sin(t1)),
+        ]
+        _slab(builder, corners, slot, y_front, y_back)
+
+
+def _bar(
+    builder: MeshBuilder,
+    a: tuple[float, float],
+    b: tuple[float, float],
+    half: float,
+    slot: str,
+) -> None:
+    """两点之间的窄石条（窗棂/辐条）。"""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dz)
+    if length < 1e-4:
+        return
+    nx, nz = -dz / length * half, dx / length * half
+    corners = [
+        (a[0] - nx, a[1] - nz),
+        (a[0] + nx, a[1] + nz),
+        (b[0] + nx, b[1] + nz),
+        (b[0] - nx, b[1] - nz),
+    ]
+    _slab(builder, corners, slot)
+
+
+def build_rose_window(
+    tiles: dict[str, float],
+    radius: float,
+    slot: str = "stone",
+    glass_slot: str = "glass",
+    foils: int = ROSE_FOILS,
+) -> MeshBuilder:
+    """嵌在山墙里的圆形玫瑰窗：外圈券石 + 八瓣窗棂 + 深色玻璃。
+
+    局部坐标与尖拱窗一致：X 以窗心为 0，Y=0 为山墙面（负方向朝外），
+    Z=0 为窗心。
+    """
+    builder = MeshBuilder(tiles)
+    if radius < 0.45:
+        return builder
+
+    ring_w = max(0.12, radius * 0.17)
+    # 玻璃：退进石券内圈，读成一圈有厚度的洞口
+    glass: list[tuple[float, float, float]] = []
+    r_glass = radius - ring_w + 0.02
+    for index in range(32):
+        t = 2.0 * math.pi * index / 32
+        glass.append((r_glass * math.cos(t), -0.018, r_glass * math.sin(t)))
+    builder.add_face(glass, glass_slot)
+
+    # 外券：深色玻璃外一圈券石，再压一道薄薄的出挑线脚
+    _ring(builder, 0.0, 0.0, radius, ring_w, slot, alternate=ring_w * 0.24)
+    _ring(
+        builder,
+        0.0,
+        0.0,
+        radius + 0.09,
+        0.07,
+        slot,
+        y_front=ROSE_Y_FRONT - 0.03,
+        y_back=ROSE_Y_FRONT + 0.02,
+    )
+
+    # 窗棂：中心圆盘 + 放射辐条 + 辐条之间的圆形花瓣
+    hub = radius * 0.20
+    _ring(builder, 0.0, 0.0, hub, hub * 0.42, slot, segments=10, y_front=-0.06)
+    petal_r = radius * 0.14
+    orbit = radius * 0.60
+    spoke_end = radius - ring_w * 0.55
+    for index in range(foils):
+        t = 2.0 * math.pi * index / foils
+        _bar(
+            builder,
+            (hub * 0.6 * math.cos(t), hub * 0.6 * math.sin(t)),
+            (spoke_end * math.cos(t), spoke_end * math.sin(t)),
+            max(0.024, radius * 0.022),
+            slot,
+        )
+        px, pz = orbit * math.cos(t + math.pi / foils), orbit * math.sin(t + math.pi / foils)
+        _ring(builder, px, pz, petal_r, petal_r * 0.42, slot, segments=8, y_front=-0.055)
+
+    return builder

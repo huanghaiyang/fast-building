@@ -564,6 +564,106 @@ export function ControlPanel(props: Props) {
 
       <details className="group collapsible">
         <summary>
+          <h3>石屋废墟</h3>
+          <span>展开</span>
+        </summary>
+        <div className="grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.round_arch}
+              onChange={(event) => onMedievalChange({ round_arch: event.target.checked })}
+            />
+            <span>半圆拱券</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.wall_ruin}
+              onChange={(event) => onMedievalChange({ wall_ruin: event.target.checked })}
+            />
+            <span>残墙断口</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.collapsed_beams}
+              onChange={(event) => onMedievalChange({ collapsed_beams: event.target.checked })}
+            />
+            <span>露明梁架与倒板</span>
+          </label>
+        </div>
+        <p className="hint">
+          半圆拱券把门窗改成罗曼式圆拱；残墙断口让侧墙顶部参差崩缺；露明梁架去掉了屋面板，只留破损山墙、脊梁与椽条，并在墙边斜靠木板、地上散落断板。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
+          <h3>哥特礼拜堂</h3>
+          <span>展开</span>
+        </summary>
+        <div className="grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.rose_window}
+              onChange={(event) => onMedievalChange({ rose_window: event.target.checked })}
+            />
+            <span>山墙玫瑰窗</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.pinnacles}
+              onChange={(event) => onMedievalChange({ pinnacles: event.target.checked })}
+            />
+            <span>扶壁小尖塔</span>
+          </label>
+        </div>
+        <p className="hint">
+          玫瑰窗嵌在前山墙正中，圆形石券外套一圈券石、内分八瓣；扶壁小尖塔立在每根扶壁顶端，山尖再加一枚石十字。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
+          <h3>农舍细节</h3>
+          <span>展开</span>
+        </summary>
+        <div className="grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.window_boxes}
+              onChange={(event) => onMedievalChange({ window_boxes: event.target.checked })}
+            />
+            <span>窗台花箱</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.gable_window}
+              onChange={(event) => onMedievalChange({ gable_window: event.target.checked })}
+            />
+            <span>山墙小窗</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.door_dressing}
+              onChange={(event) => onMedievalChange({ door_dressing: event.target.checked })}
+            />
+            <span>门旁花盆壁灯</span>
+          </label>
+        </div>
+        <p className="hint">
+          窗台花箱挂在首层正立面每扇窗下；山墙小窗连同花箱贴在木筋山墙正中，需要同时开启半木构与茅草顶；门旁花盆壁灯在门洞两侧摆石花盆，并在门侧点亮一盏暖光壁灯。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
           <h3>门窗尺寸</h3>
           <span>展开</span>
         </summary>

@@ -102,6 +102,14 @@ export interface Medieval {
   chimney_count: number;
   collapsed: boolean;
   burnt: boolean;
+  round_arch: boolean;
+  wall_ruin: boolean;
+  collapsed_beams: boolean;
+  rose_window: boolean;
+  pinnacles: boolean;
+  window_boxes: boolean;
+  gable_window: boolean;
+  door_dressing: boolean;
 }
 
 export interface Footprint {

@@ -8,10 +8,14 @@
 - X：墙长度方向；
 - Y：厚度方向，0 为外侧饰面，thickness 为内侧；
 - Z：高度方向。
+
+残墙模式（top_profile）在此之上再给每段 X 一个不同的墙顶高度：
+墙顶因此变成参差的断口，网格仍然只由直边单元组成。
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 from ..meshkit import MeshBuilder
@@ -46,6 +50,8 @@ def build_wall_panel(
     tiles: dict[str, float],
     glazing: bool = True,
     edge_slot: str = "trim",
+    top_profile: list[tuple[float, float, float]] | None = None,
+    window_slot: str = "glass",
 ) -> MeshBuilder:
     builder = MeshBuilder(tiles)
 
@@ -64,8 +70,23 @@ def build_wall_panel(
     for op in clean:
         xs.update((op.x0, op.x1))
         zs.update((op.z0, op.z1))
+
+    # 残墙：把每段墙顶高度并进网格，保证每个单元完整落在断口的一侧
+    profile = [
+        (max(0.0, x0), min(width, x1), min(height, max(0.25, top)))
+        for x0, x1, top in (top_profile or [])
+    ]
+    for x0, x1, top in profile:
+        xs.update((x0, x1))
+        zs.add(top)
     xs_sorted = _merge_close(xs)
     zs_sorted = _merge_close(zs)
+
+    def top_at(x: float) -> float:
+        for x0, x1, top in profile:
+            if x0 - 1e-4 <= x <= x1 + 1e-4:
+                return top
+        return height
 
     def in_grid(ix: int, iz: int) -> bool:
         return 0 <= ix < len(xs_sorted) - 1 and 0 <= iz < len(zs_sorted) - 1
@@ -75,6 +96,8 @@ def build_wall_panel(
             return False
         cx = (xs_sorted[ix] + xs_sorted[ix + 1]) * 0.5
         cz = (zs_sorted[iz] + zs_sorted[iz + 1]) * 0.5
+        if cz > top_at(cx):
+            return False
         for op in clean:
             if op.x0 < cx < op.x1 and op.z0 < cz < op.z1:
                 return False
@@ -132,10 +155,47 @@ def build_wall_panel(
             if gx1 - gx0 < 0.06 or gz1 - gz0 < 0.06:
                 continue
             y = thickness * (0.45 if op.kind == "door" else 0.5)
-            slot = "door" if op.kind == "door" else "glass"
+            slot = "door" if op.kind == "door" else window_slot
             builder.add_face(
                 [(gx0, y, gz0), (gx1, y, gz0), (gx1, y, gz1), (gx0, y, gz1)],
                 slot,
             )
 
     return builder
+
+
+def ruin_top_profile(
+    width: float,
+    height: float,
+    openings: list[Opening],
+    key: str,
+    min_keep: float = 0.62,
+) -> list[tuple[float, float, float]]:
+    """残墙顶轮廓：转角压得高、中段塌得低，偶发塌到半墙的深缺口。
+
+    返回 (x0, x1, top) 分段；洞口上沿会自动抬到过梁高度，避免窗洞顶悬空。
+    """
+    rnd = random.Random(f"{key}:ruin-top")
+    count = max(4, int(round(width / 0.66)))
+    segments: list[list[float]] = []
+    level = height * rnd.uniform(0.9, 0.98)
+    for index in range(count):
+        x0 = width * index / count
+        x1 = width * (index + 1) / count
+        edge = min(index, count - 1 - index)
+        # 靠近墙角的一两片保留较多，中段塌得更狠
+        cap = 1.0 - (1.0 - min_keep) * min(1.0, edge / 1.6)
+        target = height * cap * rnd.uniform(0.9, 1.02)
+        level = level * 0.35 + target * 0.65
+        top = min(height, max(height * 0.45, level))
+        if rnd.random() < 0.16:
+            top = max(height * 0.45, top - rnd.uniform(0.5, 1.0))
+        segments.append([x0, x1, top])
+
+    for op in openings:
+        need = min(height, op.z1 + 0.3)
+        for segment in segments:
+            if segment[1] > op.x0 - 0.3 and segment[0] < op.x1 + 0.3:
+                segment[2] = max(segment[2], need)
+
+    return [(x0, x1, top) for x0, x1, top in segments]

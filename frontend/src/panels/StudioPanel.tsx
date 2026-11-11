@@ -16,6 +16,7 @@ import {
   NodeInfo,
   NodeMaterialState,
   RoughnessSettings,
+  SunSettings,
   VolumetricSettings,
 } from "../viewer/BuildingViewer";
 
@@ -140,6 +141,27 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
   useEffect(() => {
     viewer?.setVolumetric(volumetric);
   }, [viewer, volumetric]);
+
+  // 阳光角度由预览器持有：环境切换时它会回调，保证滑块与画面一致
+  const [sun, setSun] = useState<SunSettings | null>(null);
+  useEffect(() => {
+    if (!viewer) return;
+    const sync = (next: SunSettings) =>
+      setSun((current) =>
+        current && current.azimuth === next.azimuth && current.elevation === next.elevation
+          ? current
+          : next,
+      );
+    sync(viewer.getSun());
+    viewer.onSunChange = sync;
+    return () => {
+      if (viewer.onSunChange === sync) viewer.onSunChange = null;
+    };
+  }, [viewer]);
+  useEffect(() => {
+    if (!viewer || !sun) return;
+    viewer.setSun(sun);
+  }, [viewer, sun]);
 
   const [clip, setClip] = useState<ClipSettings>({
     enabled: false,
@@ -444,6 +466,37 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
 
         {tab === "fx" && (
           <>
+            {sun && (
+              <section className="studio-section">
+                <h4>阳光方向</h4>
+                <Slider
+                  label="方位角"
+                  value={Math.round(sun.azimuth)}
+                  min={0}
+                  max={360}
+                  step={1}
+                  unit="°"
+                  onChange={(azimuth) =>
+                    setSun((current) => (current ? { ...current, azimuth } : current))
+                  }
+                />
+                <Slider
+                  label="高度角"
+                  value={Math.round(sun.elevation)}
+                  min={0}
+                  max={90}
+                  step={1}
+                  unit="°"
+                  onChange={(elevation) =>
+                    setSun((current) => (current ? { ...current, elevation } : current))
+                  }
+                />
+                <p className="studio-hint">
+                  方位角绕建筑旋转太阳，高度角决定日照角度；主光、天空光晕、阴影与体积光会同步变化，切换环境会重置为该预设的默认角度。
+                </p>
+              </section>
+            )}
+
             <section className="studio-section">
               <h4>体积光透视</h4>
               <Toggle

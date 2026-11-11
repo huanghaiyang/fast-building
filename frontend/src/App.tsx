@@ -66,6 +66,14 @@ const DEFAULT_FORM: Footprint = {
     chimney_count: 1,
     collapsed: false,
     burnt: false,
+    round_arch: false,
+    wall_ruin: false,
+    collapsed_beams: false,
+    rose_window: false,
+    pinnacles: false,
+    window_boxes: false,
+    gable_window: false,
+    door_dressing: false,
   },
 };
 
@@ -236,6 +244,14 @@ export default function App() {
               chimney_count: preset.chimney_count ?? current.medieval.chimney_count,
               collapsed: preset.collapsed ?? current.medieval.collapsed,
               burnt: preset.burnt ?? current.medieval.burnt,
+              round_arch: preset.round_arch ?? current.medieval.round_arch,
+              wall_ruin: preset.wall_ruin ?? current.medieval.wall_ruin,
+              collapsed_beams: preset.collapsed_beams ?? current.medieval.collapsed_beams,
+              rose_window: preset.rose_window ?? current.medieval.rose_window,
+              pinnacles: preset.pinnacles ?? current.medieval.pinnacles,
+              window_boxes: preset.window_boxes ?? current.medieval.window_boxes,
+              gable_window: preset.gable_window ?? current.medieval.gable_window,
+              door_dressing: preset.door_dressing ?? current.medieval.door_dressing,
             };
           }
           // 风格自带的体量预设（例如茅草农舍默认单层小体量）

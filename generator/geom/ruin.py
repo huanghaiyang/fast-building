@@ -412,6 +412,96 @@ def build_charred_timber(
     return builder
 
 
+# --------------------------------------------------------------------------- 斜靠与倒伏木板
+def build_leaning_planks(
+    width: float,
+    depth: float,
+    height: float,
+    tiles: dict[str, float],
+    seed: int = 42,
+    door: tuple[float, float] | None = None,
+    slot: str = "log",
+) -> MeshBuilder:
+    """墙边斜靠的木板与地上的倒伏断板。
+
+    斜靠板一端落地、一端搭在墙面上，避开门洞；倒伏板贴近地面，
+    少数压在墙脚的碎石堆上。坐标与建筑一致（正立面在 y=0）。
+    """
+    builder = MeshBuilder(tiles)
+    rnd = random.Random(f"{seed}:planks")
+
+    door_lo, door_hi = (-9.0, -9.0)
+    if door is not None:
+        door_cx, door_w = door
+        door_lo = door_cx - door_w * 0.5 - 0.45
+        door_hi = door_cx + door_w * 0.5 + 0.45
+
+    def free_spot(lo: float, hi: float) -> float:
+        """在 lo~hi 之间避开门口挑一个位置。"""
+        for _ in range(12):
+            spot = rnd.uniform(lo, hi)
+            if spot < door_lo or spot > door_hi:
+                return spot
+        return lo
+
+    # 正立面外侧斜靠的木板：下端离墙 0.5 m 左右，上端搭在墙面上
+    for _ in range(3):
+        x = free_spot(0.5, max(0.6, width - 0.5))
+        reach = height * rnd.uniform(0.5, 0.8)
+        _box_between(
+            builder,
+            (x, -rnd.uniform(0.45, 0.7), 0.02),
+            (x + rnd.uniform(-0.18, 0.18), 0.02, reach),
+            rnd.uniform(0.24, 0.34),
+            0.045,
+            slot,
+            end_scale=rnd.uniform(0.8, 1.0),
+        )
+
+    # 两侧墙外斜靠的木板
+    for side in (-1.0, 1.0):
+        if rnd.random() < 0.35:
+            continue
+        y = rnd.uniform(0.8, max(0.9, depth - 0.8))
+        reach = height * rnd.uniform(0.42, 0.66)
+        wall_x = -0.02 if side < 0 else width + 0.02
+        ground_x = wall_x + side * rnd.uniform(0.4, 0.62)
+        _box_between(
+            builder,
+            (ground_x, y, 0.02),
+            (wall_x, y + rnd.uniform(-0.25, 0.25), reach),
+            rnd.uniform(0.22, 0.3),
+            0.04,
+            slot,
+        )
+
+    # 地上倒伏的断板：室外两块、室内三块
+    for index in range(5):
+        outside = index >= 3
+        if outside:
+            cx = rnd.uniform(-0.5, width + 0.5)
+            cy = rnd.uniform(-1.1, -0.15) if rnd.random() < 0.6 else rnd.uniform(depth + 0.15, depth + 1.1)
+            z = 0.03
+        else:
+            cx = rnd.uniform(0.4, max(0.6, width - 0.4))
+            cy = rnd.uniform(0.4, max(0.6, depth - 0.4))
+            z = rnd.uniform(0.05, 0.35)
+        angle = rnd.uniform(0.0, math.tau)
+        length = rnd.uniform(1.0, 2.2)
+        dx = math.cos(angle) * length * 0.5
+        dy = math.sin(angle) * length * 0.5
+        _box_between(
+            builder,
+            (cx - dx, cy - dy, z),
+            (cx + dx, cy + dy, z + rnd.uniform(-0.03, 0.1)),
+            rnd.uniform(0.18, 0.3),
+            0.04,
+            slot,
+        )
+
+    return builder
+
+
 # --------------------------------------------------------------------------- 组合
 def build_collapsed_ruin(
     width: float,

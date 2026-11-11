@@ -103,6 +103,16 @@ export interface VolumetricSettings {
   intensity: number;
 }
 
+export interface SunSettings {
+  /** 方位角（度）：绕建筑旋转太阳，0~360。 */
+  azimuth: number;
+  /** 高度角（度）：0 为地平线，90 为天顶。 */
+  elevation: number;
+}
+
+/** 主光到场景中心的距离，保证阴影相机覆盖面稳定。 */
+const SUN_DISTANCE = 46;
+
 export interface RoughnessSettings {
   enabled: boolean;
   scale: number;
@@ -135,7 +145,7 @@ interface SkyConfig {
   top: string;
   horizon: string;
   bottom: string;
-  sun?: { color: string; x: number; y: number; radius: number };
+  sun?: { color: string; radius: number };
 }
 
 interface EnvironmentConfig {
@@ -164,7 +174,7 @@ const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {
       top: "#3f7fc4",
       horizon: "#cfe4f2",
       bottom: "#6b6b60",
-      sun: { color: "#fff6d8", x: 0.74, y: 0.26, radius: 70 },
+      sun: { color: "#fff6d8", radius: 70 },
     },
   },
   golden: {
@@ -180,7 +190,7 @@ const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {
       top: "#2f4f7a",
       horizon: "#f2b06a",
       bottom: "#4a3a30",
-      sun: { color: "#ffcf8a", x: 0.8, y: 0.44, radius: 110 },
+      sun: { color: "#ffcf8a", radius: 110 },
     },
   },
   overcast: {
@@ -207,7 +217,7 @@ const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {
       top: "#050914",
       horizon: "#16243c",
       bottom: "#0a0e16",
-      sun: { color: "#e8f0ff", x: 0.24, y: 0.3, radius: 30 },
+      sun: { color: "#e8f0ff", radius: 30 },
     },
   },
   studio: {
@@ -261,6 +271,12 @@ export class BuildingViewer {
   onAttractorPoint: ((point: [number, number, number]) => void) | null = null;
   onBlocksChanged: ((blocks: BlockInfo[]) => void) | null = null;
   onSelectedBlock: ((block: BlockInfo | null) => void) | null = null;
+  onSunChange: ((sun: SunSettings) => void) | null = null;
+
+  private sunSettings: SunSettings = { azimuth: 52, elevation: 49 };
+  private skyConfig: SkyConfig | null = null;
+  private skyTimer = 0;
+  private readonly sunDir = new THREE.Vector3();
 
   private readonly raycaster = new THREE.Raycaster();
   private readonly nodes = new Map<string, THREE.Mesh>();
@@ -447,7 +463,19 @@ export class BuildingViewer {
     this.scene.add(this.grid);
   }
 
-  /** 生成纵向渐变的等距圆柱天空贴图，可选叠加太阳光晕。 */
+  /** 依据方位角/高度角计算指向太阳的单位向量。 */
+  private sunDirection(): THREE.Vector3 {
+    const elevation = THREE.MathUtils.degToRad(this.sunSettings.elevation);
+    const azimuth = THREE.MathUtils.degToRad(this.sunSettings.azimuth);
+    this.sunDir.set(
+      Math.cos(elevation) * Math.sin(azimuth),
+      Math.sin(elevation),
+      Math.cos(elevation) * Math.cos(azimuth),
+    );
+    return this.sunDir;
+  }
+
+  /** 生成纵向渐变的等距圆柱天空贴图，太阳光晕按当前方位角/高度角绘制。 */
   private createSkyTexture(sky: SkyConfig): THREE.Texture {
     const width = 1024;
     const height = 512;
@@ -464,8 +492,12 @@ export class BuildingViewer {
       ctx.fillRect(0, 0, width, height);
 
       if (sky.sun) {
-        const cx = sky.sun.x * width;
-        const cy = sky.sun.y * height;
+        // 与 three.js 的等距圆柱映射一致，光晕才会落在主光的真实方向上
+        const dir = this.sunDirection();
+        const u = Math.atan2(dir.z, dir.x) / (Math.PI * 2) + 0.5;
+        const v = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1)) / Math.PI + 0.5;
+        const cx = u * width;
+        const cy = (1 - v) * height;
         const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, sky.sun.radius);
         glow.addColorStop(0, sky.sun.color);
         glow.addColorStop(0.35, `${sky.sun.color}99`);
@@ -510,7 +542,9 @@ export class BuildingViewer {
 
     this.key.color.set(config.key.color);
     this.key.intensity = config.key.intensity;
-    this.key.position.set(...config.key.position);
+    // 环境预设给出太阳的初始方位与高度，之后可在面板里手动细调
+    this.sunSettings = this.sunFromVector(config.key.position);
+    this.key.position.copy(this.sunDirection()).multiplyScalar(SUN_DISTANCE);
 
     this.fill.color.set(config.fill.color);
     this.fill.intensity = config.fill.intensity;
@@ -521,6 +555,7 @@ export class BuildingViewer {
     (this.grid.material as THREE.Material).opacity = config.gridOpacity;
 
     this.disposeEnvironment();
+    this.skyConfig = config.sky ?? null;
     if (config.sky) {
       const skyTexture = this.createSkyTexture(config.sky);
       this.skyTexture = skyTexture;
@@ -535,6 +570,63 @@ export class BuildingViewer {
     this.scene.environmentIntensity = this.ambientMultiplier;
     this.applyWetness();
     this.updateVolumetricAnchor();
+    this.onSunChange?.(this.getSun());
+  }
+
+  /** 当前阳光方位角与高度角（度）。 */
+  getSun(): SunSettings {
+    return { ...this.sunSettings };
+  }
+
+  /** 调整阳光朝向与高度：主光、天空光晕、阴影与体积光同步更新。 */
+  setSun(patch: Partial<SunSettings>): void {
+    const azimuth = (((patch.azimuth ?? this.sunSettings.azimuth) % 360) + 360) % 360;
+    const elevation = Math.max(0, Math.min(90, patch.elevation ?? this.sunSettings.elevation));
+    if (
+      Math.abs(azimuth - this.sunSettings.azimuth) < 0.01 &&
+      Math.abs(elevation - this.sunSettings.elevation) < 0.01
+    ) {
+      return;
+    }
+    this.sunSettings = { azimuth, elevation };
+    this.key.position.copy(this.sunDirection()).multiplyScalar(SUN_DISTANCE);
+    this.updateVolumetricAnchor();
+    this.scheduleSkyRebuild();
+    this.onSunChange?.(this.getSun());
+  }
+
+  /** 由光照位置反推方位角与高度角，用于环境切换时同步滑块。 */
+  private sunFromVector(position: [number, number, number]): SunSettings {
+    const vector = new THREE.Vector3(...position);
+    const length = vector.length() || 1;
+    const elevation = THREE.MathUtils.radToDeg(
+      Math.asin(THREE.MathUtils.clamp(vector.y / length, -1, 1)),
+    );
+    const azimuth = ((THREE.MathUtils.radToDeg(Math.atan2(vector.x, vector.z)) % 360) + 360) % 360;
+    return { azimuth, elevation: Math.max(0, Math.min(90, elevation)) };
+  }
+
+  /** 拖动滑块时合并重建：先实时更新主光，稍后再重绘天空与环境贴图。 */
+  private scheduleSkyRebuild(): void {
+    if (this.skyTimer) window.clearTimeout(this.skyTimer);
+    this.skyTimer = window.setTimeout(() => {
+      this.skyTimer = 0;
+      if (this.disposed) return;
+      this.rebuildSky();
+    }, 90);
+  }
+
+  /** 重绘天空贴图并刷新 IBL，让太阳光晕跟随手动调整的角度。 */
+  private rebuildSky(): void {
+    if (!this.skyConfig) return;
+    const texture = this.createSkyTexture(this.skyConfig);
+    this.skyTexture?.dispose();
+    this.skyTexture = texture;
+    this.scene.background = texture;
+    this.envTarget?.dispose();
+    this.envTarget = this.pmrem.fromEquirectangular(texture);
+    this.scene.environment = this.envTarget.texture;
+    this.scene.environmentIntensity = this.ambientMultiplier;
   }
 
   private resize(): void {
@@ -1498,6 +1590,7 @@ export class BuildingViewer {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.animationId);
+    if (this.skyTimer) window.clearTimeout(this.skyTimer);
     this.resizeObserver.disconnect();
     if (this.firstPerson) this.setFirstPerson(false);
     this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);

@@ -9,13 +9,19 @@
 
 from __future__ import annotations
 
+import math
+
 from ..meshkit import MeshBuilder
-from .arch import arch_rise
+from .arch import arch_rise, half_span, round_arch_rise
 from .wall_panel import Opening
 
 FRAME = 0.075
 T_PROUD = 0.045
 T_EMBED = 0.02
+# 拱券石环：外沿比洞口半径再放大这么多，盖住条带近似留下的锯齿
+RING_WIDTH = 0.20
+RING_INNER = 0.11
+RING_BLOCKS = 15
 
 
 def _box(
@@ -33,6 +39,116 @@ def _box(
     builder.add_box((x0, y0, z0), (x1, y1, z1), slot)
 
 
+def _round_arch_ring(
+    builder: MeshBuilder,
+    op: Opening,
+    thickness: float,
+    slot: str,
+) -> None:
+    """沿半圆券排一圈券石，同时把洞口的锯齿状内壁包成光滑拱腹。
+
+    券石从墙面出挑 5 cm，并向洞内收进 RING_INNER，等于给拱线做了一道
+    贯通墙厚的石券：外圈深浅交替像一块块券石，内圈则是平滑的拱腹，
+    正好盖住矩形条带近似留下的台阶。
+    """
+    width = op.x1 - op.x0
+    rise = round_arch_rise(width, op.z1 - op.z0)
+    spring = op.z1 - rise
+    if spring - op.z0 < 0.15:
+        return
+
+    cx = (op.x0 + op.x1) * 0.5
+    a = width * 0.5
+    y_front = -0.055
+    y_back = max(0.02, thickness - 0.02)
+
+    def point(t: float, offset: float) -> tuple[float, float]:
+        return (cx + (a + offset) * math.cos(t), spring + (rise + offset) * math.sin(t))
+
+    for index in range(RING_BLOCKS):
+        t0 = math.pi * index / RING_BLOCKS
+        t1 = math.pi * (index + 1) / RING_BLOCKS
+        # 交替出挑深浅，读成一块块分开的券石
+        outer = RING_WIDTH * (0.78 if index % 2 else 1.0)
+        inner = -RING_INNER
+        corners = [
+            point(t0, inner),
+            point(t0, outer),
+            point(t1, outer),
+            point(t1, inner),
+        ]
+        front = [(x, y_front, z) for x, z in corners]
+        back = [(x, y_back, z) for x, z in corners]
+        builder.add_face(front, slot)
+        builder.add_face(list(reversed(back)), slot)
+        for k in range(4):
+            a0 = front[k]
+            a1 = front[(k + 1) % 4]
+            b0 = back[k]
+            b1 = back[(k + 1) % 4]
+            builder.add_face([a0, a1, b1, b0], slot)
+
+
+def _pointed_arch_ring(
+    builder: MeshBuilder,
+    op: Opening,
+    thickness: float,
+    slot: str,
+) -> None:
+    """沿尖拱线排一圈券石；外圈深浅交替，内圈收进洞内盖住条带台阶。
+
+    与半圆券的做法一致：券石贯通墙厚，起拱点以上把锯齿状的拱腹包圆。
+    """
+    width = op.x1 - op.x0
+    rise = arch_rise(width, op.z1 - op.z0)
+    spring = op.z1 - rise
+    if spring - op.z0 < 0.15:
+        return
+
+    cx = (op.x0 + op.x1) * 0.5
+    steps = 8
+    outline: list[tuple[float, float]] = []
+    for index in range(steps + 1):
+        dz = rise * index / steps
+        outline.append((cx - half_span(width, dz), spring + dz))
+    for index in range(steps - 1, -1, -1):
+        dz = rise * index / steps
+        outline.append((cx + half_span(width, dz), spring + dz))
+
+    y_front = -0.055
+    y_back = max(0.02, thickness - 0.02)
+    for index in range(len(outline) - 1):
+        p0, p1 = outline[index], outline[index + 1]
+        dx, dz = p1[0] - p0[0], p1[1] - p0[1]
+        length = math.hypot(dx, dz)
+        if length < 1e-4:
+            continue
+        nx, nz = -dz / length, dx / length
+        mx = (p0[0] + p1[0]) * 0.5 - cx
+        mz = (p0[1] + p1[1]) * 0.5 - spring
+        if nx * mx + nz * mz < 0.0:
+            nx, nz = -nx, -nz
+
+        outer = RING_WIDTH * (0.78 if index % 2 else 1.0)
+        inner = -RING_INNER
+        corners = [
+            (p0[0] + nx * inner, p0[1] + nz * inner),
+            (p0[0] + nx * outer, p0[1] + nz * outer),
+            (p1[0] + nx * outer, p1[1] + nz * outer),
+            (p1[0] + nx * inner, p1[1] + nz * inner),
+        ]
+        front = [(x, y_front, z) for x, z in corners]
+        back = [(x, y_back, z) for x, z in corners]
+        builder.add_face(front, slot)
+        builder.add_face(list(reversed(back)), slot)
+        for k in range(4):
+            a0 = front[k]
+            a1 = front[(k + 1) % 4]
+            b0 = back[k]
+            b1 = back[(k + 1) % 4]
+            builder.add_face([a0, a1, b1, b0], slot)
+
+
 def build_opening_trims(
     openings: list[Opening],
     thickness: float,
@@ -41,14 +157,21 @@ def build_opening_trims(
     sill: bool = True,
     slot: str = "trim",
     arched: bool = False,
+    round_arch: bool = False,
+    arch_ring: bool = False,
 ) -> MeshBuilder:
     builder = MeshBuilder(tiles)
 
     for op in openings:
-        # 尖拱洞口不做矩形上框与横窗棂，否则会压在拱头上；立框只做到起拱点
+        # 拱形洞口不做矩形上框与横窗棂，否则会压在拱头上；立框只做到起拱点
         head = op.z1
         if arched:
-            head = op.z1 - arch_rise(op.x1 - op.x0, op.z1 - op.z0)
+            rise = (
+                round_arch_rise(op.x1 - op.x0, op.z1 - op.z0)
+                if round_arch
+                else arch_rise(op.x1 - op.x0, op.z1 - op.z0)
+            )
+            head = op.z1 - rise
             if head - op.z0 < 0.2:
                 head = op.z1
 
@@ -60,6 +183,11 @@ def build_opening_trims(
                  op.z1, op.z1 + FRAME, slot)
         _box(builder, op.x0 - FRAME, op.x0, -T_PROUD, T_EMBED, op.z0, head, slot)
         _box(builder, op.x1, op.x1 + FRAME, -T_PROUD, T_EMBED, op.z0, head, slot)
+
+        if arched and round_arch:
+            _round_arch_ring(builder, op, thickness, slot)
+        elif arched and arch_ring:
+            _pointed_arch_ring(builder, op, thickness, slot)
 
         if op.kind == "door":
             # 门槛石
