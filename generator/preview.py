@@ -14,6 +14,7 @@ from pathlib import Path
 
 import bpy
 
+from . import quality
 from .assemble import create_object, ensure_collection, reset_scene
 from .geom.arch import add_opening_pane, arch_strips
 from .geom.balcony import build_balcony
@@ -187,6 +188,8 @@ def build_module_preview(
     collection = ensure_collection()
     mat_lib = _preview_material(data_dir)
     tiles = mat_lib.tiles
+    # 模块预览与正式生成保持一致的着色质量
+    quality.configure(True, 1)
 
     objects: list[bpy.types.Object] = []
     for index, part in enumerate(_module_builders(module_id, tiles)):

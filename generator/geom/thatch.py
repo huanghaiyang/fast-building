@@ -246,6 +246,103 @@ def _gable_window(
     )
 
 
+def _shingle_band(
+    builder: MeshBuilder,
+    x_eave: float,
+    z_eave: float,
+    x_ridge: float,
+    z_ridge: float,
+    y0: float,
+    y1: float,
+    t0: float,
+    t1: float,
+    side: int,
+    slot: str = "roof",
+) -> None:
+    """在坡面中段压一条石瓦腰带。
+
+    瓦片是错缝叠铺的薄板，沿坡面法线抬起 2~4 cm 压在茅草上；每片瓦的下沿
+    补一条厚度侧壁，远看才有石板叠压的层次，而不是一层贴图。
+    """
+    dx, dz = x_ridge - x_eave, z_ridge - z_eave
+    length = math.hypot(dx, dz) or 1.0
+    ux, uz = dx / length, dz / length
+    nx, nz = -uz, ux
+    if nx * side < 0.0:
+        nx, nz = -nx, -nz
+
+    def point(t: float, lift: float, y: float) -> tuple[float, float, float]:
+        return (
+            x_eave + dx * t + nx * lift,
+            y,
+            z_eave + dz * t + nz * lift,
+        )
+
+    span = (t1 - t0) * length
+    rows = max(2, int(round(span / 0.34)))
+    for row in range(rows):
+        ta = t0 + (t1 - t0) * row / rows
+        tb = t0 + (t1 - t0) * (row + 1) / rows
+        lift = 0.026 + 0.002 * row
+        # 错缝：偶数排向右偏半片
+        y = y0 + (row % 2) * 0.22 - 0.44
+        index = 0
+        while y < y1:
+            width = 0.44 * (0.82 + ((row * 7 + index * 5) % 6) * 0.06)
+            ya = max(y0 + 0.02, y)
+            yb = min(y1 - 0.02, y + width - 0.012)
+            y += width
+            index += 1
+            if yb - ya < 0.06:
+                continue
+            a = point(ta, lift, ya)
+            b = point(ta, lift, yb)
+            c = point(tb, lift, yb)
+            d = point(tb, lift, ya)
+            if side < 0:
+                builder.add_face([a, b, c, d], slot)
+            else:
+                builder.add_face([b, a, d, c], slot)
+            # 下沿厚度侧壁
+            builder.add_face([d, c, point(tb, 0.0, yb), point(tb, 0.0, ya)], slot)
+
+
+def _eave_fringe(
+    builder: MeshBuilder,
+    x_eave: float,
+    y0: float,
+    y1: float,
+    z_eave: float,
+    depth: float,
+    outward: float,
+    slot: str = "thatch",
+) -> None:
+    """檐口垂下的草束：一排长短不一的三角面，只做剪影。
+
+    茅草屋面真正的收口是一排没被压进草捆的散草，平直做过去会像一块切齐的
+    板材。三角面不封背面，靠材质双面渲染，控制在两百个面以内。
+    """
+    step = 0.17
+    count = max(2, int((y1 - y0) / step))
+    for index in range(count):
+        ya = y0 + (y1 - y0) * index / count
+        yb = y0 + (y1 - y0) * (index + 1) / count
+        if yb - ya < 0.04:
+            continue
+        length = depth * (0.5 + 0.5 * ((index * 7) % 5) / 4.0)
+        top = z_eave + 0.03
+        mid = (ya + yb) * 0.5
+        x_top = x_eave + outward * 0.015
+        x_tip = x_eave + outward * 0.07
+        tri = [
+            (x_top, ya + 0.012, top),
+            (x_top, yb - 0.012, top),
+            (x_tip, mid, z_eave - length),
+        ]
+        builder.add_face(tri, slot)
+        builder.add_face(list(reversed(tri)), slot)
+
+
 def build_thatch_roof(
     width: float,
     depth: float,
@@ -257,6 +354,10 @@ def build_thatch_roof(
     gable_slot: str = "thatch",
     gable_window: tuple[float, float, float, float] | None = None,
     gable_overhang: float = 0.18,
+    fringe: float = 0.0,
+    thatch_ridge: bool = False,
+    shingle_band: tuple[float, float] | None = None,
+    band_slot: str = "roof",
 ) -> MeshBuilder:
     """厚茅草双坡屋顶；局部坐标与 build_gable_roof 一致。
 
@@ -308,6 +409,18 @@ def build_thatch_roof(
     add_cylinder_y(builder, y0, y1, x_left, z + lip, lip, "thatch")
     add_cylinder_y(builder, y0, y1, x_right, z + lip, lip, "thatch")
 
+    # 坡面中段的石瓦腰带：t 从檐口(0)到屋脊(1)
+    if shingle_band is not None:
+        t0, t1 = shingle_band
+        band_y0, band_y1 = y0 + 0.05, y1 - 0.05
+        _shingle_band(builder, x_left, z_top, cx, z_ridge, band_y0, band_y1, t0, t1, -1, band_slot)
+        _shingle_band(builder, x_right, z_top, cx, z_ridge, band_y0, band_y1, t0, t1, 1, band_slot)
+
+    # 散草：檐口下方垂下的长短草束
+    if fringe > 0.0:
+        _eave_fringe(builder, x_left, y0, y1, z, fringe, -1.0)
+        _eave_fringe(builder, x_right, y0, y1, z, fringe, 1.0)
+
     # 博风板：两侧山墙沿坡向的深色木板，同时封住山墙与坡面的接缝
     board_w = 0.15
     _rake_board(builder, x_left, z, cx, z_ridge, y0 - 0.05, y0 + 0.004, board_w, "trim")
@@ -319,12 +432,15 @@ def build_thatch_roof(
     for y_a, y_b in ((y0, 0.0), (y1, depth)):
         builder.add_box((x_left, y_a, z - 0.13), (x_right, y_b, z), "trim")
 
-    # 屋脊原木脊梁：半埋在草里，两端略微出挑
-    builder.add_box(
-        (cx - 0.07, y0 - 0.10, z_ridge - 0.06),
-        (cx + 0.07, y1 + 0.10, z_ridge + 0.055),
-        "trim",
-    )
+    # 屋脊：木脊梁或压成草卷，两端略微出挑
+    if thatch_ridge:
+        add_cylinder_y(builder, y0 - 0.10, y1 + 0.10, cx, z_ridge - 0.03, 0.16, "thatch", segments=10)
+    else:
+        builder.add_box(
+            (cx - 0.07, y0 - 0.10, z_ridge - 0.06),
+            (cx + 0.07, y1 + 0.10, z_ridge + 0.055),
+            "trim",
+        )
 
     if gable_window is not None:
         wx, wz, ww, wh = gable_window

@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class OpeningsSpec(BaseModel):
     """门窗洞口的默认尺寸（单位：米）。"""
 
-    window_w: float = Field(1.4, ge=0.4, le=4.0)
+    window_w: float = Field(1.4, ge=0.12, le=4.0)
     window_h: float = Field(1.6, ge=0.4, le=4.0)
     sill_h: float = Field(0.9, ge=0.0, le=2.0)
     door_w: float = Field(1.05, ge=0.6, le=3.0)
@@ -35,13 +35,40 @@ class MedievalSpec(BaseModel):
     thatch_roof: bool = False
     stone_plinth: bool = False
     porch: bool = False
+    # 植被：常春藤、墙根灌木与草丛
+    ivy: bool = False
+    # 藤蔓生长状态：覆盖度（每面墙几股）与爬升高度占墙高的比例
+    ivy_coverage: float = Field(0.6, ge=0.0, le=1.0)
+    ivy_height: float = Field(0.8, ge=0.05, le=1.0)
+    # 哥特石构与废墟
+    buttresses: bool = False
+    bellcote: bool = False
+    ruined_roof: bool = False
+    # 废墟教堂：西端方形钟塔、屋脊沿长轴的残破坡顶与崩缺山墙
+    bell_tower: bool = False
+    nave_roof: bool = False
+    # 石砌瞭望塔：阶梯石基、塔顶悬挑木挑廊、挑廊上的木构瞭望棚
+    stepped_base: bool = False
+    hoarding: bool = False
+    lookout: bool = False
+    # 破败半木构客栈：环绕木廊、悬挑店招、悬山脊梁与封檐板
+    gallery: bool = False
+    shop_sign: bool = False
+    ridge_cap: bool = False
+    # 茅草农舍：坡面中段的石瓦腰带、烟囱数量（>1 时骑屋脊分列两端）
+    shingle_band: bool = False
+    chimney_count: int = Field(1, ge=1, le=4)
+    # 塌毁石屋：残墙断口 + 瓦砾堆 + 焦木梁架
+    collapsed: bool = False
+    # 烧毁的木构农舍：炭化墙斑与半覆屋顶
+    burnt: bool = False
 
 
 class Footprint(BaseModel):
     """一次建筑生成请求。"""
 
-    width: float = Field(12.0, ge=6.0, le=60.0)
-    depth: float = Field(9.0, ge=6.0, le=40.0)
+    width: float = Field(12.0, ge=4.0, le=60.0)
+    depth: float = Field(9.0, ge=4.0, le=40.0)
     bays: int = Field(3, ge=1, le=10)
     floors: int = Field(3, ge=1, le=10)
     floor_height: float = Field(3.0, ge=2.4, le=6.0)
@@ -52,6 +79,9 @@ class Footprint(BaseModel):
     lod: int = Field(0, ge=0, le=1)
     seed: int = 42
     balcony: bool = True
+    # 几何质量：平滑着色与 Catmull-Clark 细分级别（0 表示不细分）
+    smooth: bool = True
+    subdiv: int = Field(1, ge=0, le=2)
     openings: OpeningsSpec = Field(default_factory=OpeningsSpec)
     medieval: MedievalSpec = Field(default_factory=MedievalSpec)
 

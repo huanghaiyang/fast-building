@@ -14,20 +14,41 @@ from pathlib import Path
 import bmesh
 import bpy
 
+from . import quality
 from .geom.arch import add_opening_pane, arch_strips
 from .geom.balcony import build_balcony
+from .geom.bellcote import build_bellcote
+from .geom.burn import build_burnt_roof, build_scorch_patches
+from .geom.buttress import build_buttress
+from .geom.chapel import build_bell_tower, build_broken_gable, build_nave_roof
 from .geom.chimney import build_chimney
 from .geom.dormer import build_gable_dormer
+from .geom.foliage import build_vegetation
+from .geom.gable_frame import build_gable_frame
+from .geom.gallery import build_gallery
+from .geom.lancet import build_lancet
 from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
 from .geom.plinth import build_plinth
 from .geom.porch import build_thatch_porch
+from .geom.ridge import build_ridge_cap
 from .geom.roof import build_flat_roof, build_gable_roof
+from .geom.ruin import build_collapsed_ruin, build_rubble
+from .geom.sign import build_shop_sign
 from .geom.slab import build_slab
 from .geom.stair import build_straight_stair
 from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
 from .geom.wall_panel import Opening, build_wall_panel
+from .geom.watchtower import (
+    HOARDING_FLOOR_T,
+    LOOKOUT_INSET,
+    LOOKOUT_WALL_H,
+    build_hoarding,
+    build_lookout,
+    build_stepped_base,
+)
+from .geom.window_trim import build_opening_trims
 from .material.pbr import MaterialLibrary
 from .meshkit import MeshBuilder
 from .schema import SLAB_THICKNESS, WALL_THICKNESS, Spec
@@ -116,6 +137,7 @@ def create_object(
     obj.location = location
     obj.rotation_euler[2] = rotation_z
     collection.objects.link(obj)
+    quality.apply(obj)
     return obj
 
 
@@ -141,7 +163,8 @@ def _window_openings(
         cx = slot * (i + 0.5)
         x0 = max(0.12, cx - width * 0.5)
         x1 = min(span - 0.12, cx + width * 0.5)
-        if x1 - x0 < 0.35:
+        # 0.10 m 是箭孔这类窄洞的下限，再窄墙板会退化成细碎条带
+        if x1 - x0 < 0.10:
             continue
         openings.append(
             Opening(x0, x1, spec.openings.sill_h, spec.openings.sill_h + height, "window")
@@ -210,17 +233,27 @@ def _wall_panel(
     openings: list[Opening],
     tiles: dict[str, float],
     arched: bool,
+    edge_slot: str = "trim",
+    scorch: bool = False,
 ) -> MeshBuilder:
     """生成墙板；尖拱模式下用矩形带逼近拱头，并单独补玻璃/门扇面片。"""
     if not arched:
-        return build_wall_panel(width, height, WALL_THICKNESS, openings, tiles)
-
-    strips: list[Opening] = []
-    for op in openings:
-        strips.extend(arch_strips(op))
-    builder = build_wall_panel(width, height, WALL_THICKNESS, strips, tiles, glazing=False)
-    for op in openings:
-        add_opening_pane(builder, op, WALL_THICKNESS, arched=True)
+        builder = build_wall_panel(
+            width, height, WALL_THICKNESS, openings, tiles, edge_slot=edge_slot
+        )
+    else:
+        strips: list[Opening] = []
+        for op in openings:
+            strips.extend(arch_strips(op))
+        builder = build_wall_panel(
+            width, height, WALL_THICKNESS, strips, tiles, glazing=False, edge_slot=edge_slot
+        )
+        for op in openings:
+            add_opening_pane(builder, op, WALL_THICKNESS, arched=True)
+    if scorch:
+        # 每面墙用尺寸与洞口位置生成不同的炭化斑块
+        key = int((width * 31 + height * 17 + sum(op.x0 for op in openings) * 13) * 100)
+        build_scorch_patches(builder, width, height, openings, WALL_THICKNESS, key)
     return builder
 
 
@@ -233,6 +266,7 @@ def _wall_builder(
     medieval,
     left_end: bool,
     right_end: bool,
+    edge_slot: str = "trim",
 ) -> MeshBuilder:
     """按开关选择原木墙或普通墙板；只有建筑外墙端才让圆木出挑。"""
     if medieval.log_walls:
@@ -244,7 +278,9 @@ def _wall_builder(
             protrude_left=LOG_CORNER if left_end else 0.0,
             protrude_right=LOG_CORNER if right_end else 0.0,
         )
-    return _wall_panel(width, height, openings, tiles, arched)
+    return _wall_panel(
+        width, height, openings, tiles, arched, edge_slot, scorch=medieval.burnt
+    )
 
 
 def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:
@@ -264,16 +300,48 @@ def build_building(
     mat_lib = MaterialLibrary(data_dir, spec.textureset, style)
     tiles = mat_lib.tiles
     collection = ensure_collection()
+    # 着色与细分策略必须在建对象之前生效，create_object 会逐件套用
+    quality.configure(spec.smooth, spec.subdiv)
     medieval = spec.medieval
     arched = medieval.arch_openings
+    trim_slot = style.get("trim_slot", "trim")
+    slab_slot = style.get("slab_slot", "trim")
+    trim_openings = (
+        medieval.timber_frame or medieval.thatch_roof or bool(style.get("opening_trims"))
+    )
     # 中世纪悬挑楼层：二层起每层向外挑出 0.3 m
     jetty_step = 0.3 if medieval.jetty else 0.0
+    # 半木构墙面上用木板填充部分开间（灰泥 + 木板混排）
+    plank_panels = bool(style.get("plank_panels"))
 
     root = bpy.data.objects.new("BUILDING", None)
     collection.objects.link(root)
 
     objects: list[bpy.types.Object] = []
     wall_height = spec.floor_height - SLAB_THICKNESS
+
+    # 塌毁石屋：整栋退化为残墙 + 瓦砾 + 焦木，不再生成楼板、勒脚与屋顶
+    if medieval.collapsed:
+        ruin_height = spec.floor_height - 0.15
+        ruin_door = _ground_door(spec, style)
+        parts = build_collapsed_ruin(
+            spec.width,
+            spec.depth,
+            ruin_height,
+            WALL_THICKNESS,
+            tiles,
+            spec.seed,
+            ruin_door,
+            spec.openings.door_h,
+        )
+        for name, (mesh, location, rotation) in parts.items():
+            objects.append(
+                create_object(mesh, name, mat_lib, collection, location, rotation)
+            )
+        for obj in objects:
+            obj.parent = root
+        stats = _collect_stats(objects, mat_lib)
+        return objects, stats, mat_lib
 
     for floor in range(spec.floors):
         base_z = floor * spec.floor_height
@@ -285,7 +353,9 @@ def build_building(
         side_length = floor_d - 2 * WALL_THICKNESS
 
         # 楼板
-        slab = build_slab(floor_w, floor_d, base_z, SLAB_THICKNESS, tiles)
+        slab = build_slab(
+            floor_w, floor_d, base_z, SLAB_THICKNESS, tiles, slot=slab_slot
+        )
         objects.append(
             create_object(slab, f"slab_f{floor}", mat_lib, collection, (-ext, -ext, 0.0))
         )
@@ -305,12 +375,29 @@ def build_building(
                 medieval,
                 bay == 0,
                 bay == spec.bays - 1,
+                edge_slot=trim_slot,
             )
             objects.append(
                 create_object(front, f"wall_front_f{floor}_b{bay}", mat_lib, collection, (x0, -ext, wall_z), 0.0)
             )
+            if trim_openings:
+                trims = build_opening_trims(
+                    front_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                )
+                objects.append(
+                    create_object(
+                        trims,
+                        f"trim_front_f{floor}_b{bay}",
+                        mat_lib,
+                        collection,
+                        (x0, -ext, wall_z),
+                        0.0,
+                    )
+                )
             if medieval.timber_frame and not medieval.log_walls:
-                frame = build_timber_frame(bay_width, wall_height, front_ops, tiles)
+                frame = build_timber_frame(
+                    bay_width, wall_height, front_ops, tiles, plank_panel=plank_panels
+                )
                 objects.append(
                     create_object(
                         frame,
@@ -332,6 +419,7 @@ def build_building(
                 medieval,
                 bay == spec.bays - 1,
                 bay == 0,
+                edge_slot=trim_slot,
             )
             objects.append(
                 create_object(
@@ -343,8 +431,24 @@ def build_building(
                     math.pi,
                 )
             )
+            if trim_openings:
+                trims = build_opening_trims(
+                    back_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                )
+                objects.append(
+                    create_object(
+                        trims,
+                        f"trim_back_f{floor}_b{bay}",
+                        mat_lib,
+                        collection,
+                        (x0 + bay_width, spec.depth + ext, wall_z),
+                        math.pi,
+                    )
+                )
             if medieval.timber_frame and not medieval.log_walls:
-                frame = build_timber_frame(bay_width, wall_height, back_ops, tiles)
+                frame = build_timber_frame(
+                    bay_width, wall_height, back_ops, tiles, plank_panel=plank_panels
+                )
                 objects.append(
                     create_object(
                         frame,
@@ -360,7 +464,15 @@ def build_building(
         if side_length > 1.2:
             left_ops = _side_openings(side_length, wall_height, floor, spec)
             left = _wall_builder(
-                side_length, wall_height, left_ops, tiles, arched, medieval, True, True
+                side_length,
+                wall_height,
+                left_ops,
+                tiles,
+                arched,
+                medieval,
+                True,
+                True,
+                edge_slot=trim_slot,
             )
             objects.append(
                 create_object(
@@ -372,10 +484,46 @@ def build_building(
                     -math.pi / 2,
                 )
             )
+            if trim_openings:
+                trims = build_opening_trims(
+                    left_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                )
+                objects.append(
+                    create_object(
+                        trims,
+                        f"trim_left_f{floor}",
+                        mat_lib,
+                        collection,
+                        (-ext, spec.depth + ext - WALL_THICKNESS, wall_z),
+                        -math.pi / 2,
+                    )
+                )
+            if medieval.timber_frame and not medieval.log_walls:
+                frame = build_timber_frame(
+                    side_length, wall_height, left_ops, tiles, plank_panel=plank_panels
+                )
+                objects.append(
+                    create_object(
+                        frame,
+                        f"timber_left_f{floor}",
+                        mat_lib,
+                        collection,
+                        (-ext, spec.depth + ext - WALL_THICKNESS, wall_z),
+                        -math.pi / 2,
+                    )
+                )
 
             right_ops = _side_openings(side_length, wall_height, floor, spec)
             right = _wall_builder(
-                side_length, wall_height, right_ops, tiles, arched, medieval, True, True
+                side_length,
+                wall_height,
+                right_ops,
+                tiles,
+                arched,
+                medieval,
+                True,
+                True,
+                edge_slot=trim_slot,
             )
             objects.append(
                 create_object(
@@ -387,6 +535,83 @@ def build_building(
                     math.pi / 2,
                 )
             )
+            if trim_openings:
+                trims = build_opening_trims(
+                    right_ops, WALL_THICKNESS, tiles, slot=trim_slot, arched=arched
+                )
+                objects.append(
+                    create_object(
+                        trims,
+                        f"trim_right_f{floor}",
+                        mat_lib,
+                        collection,
+                        (spec.width + ext, -ext + WALL_THICKNESS, wall_z),
+                        math.pi / 2,
+                    )
+                )
+            if medieval.timber_frame and not medieval.log_walls:
+                frame = build_timber_frame(
+                    side_length, wall_height, right_ops, tiles, plank_panel=plank_panels
+                )
+                objects.append(
+                    create_object(
+                        frame,
+                        f"timber_right_f{floor}",
+                        mat_lib,
+                        collection,
+                        (spec.width + ext, -ext + WALL_THICKNESS, wall_z),
+                        math.pi / 2,
+                    )
+                )
+
+        # 哥特石扶壁：前后立面按开间分界，侧墙落在四角与跨中
+        if medieval.buttresses:
+            pier = build_buttress(wall_height, tiles)
+            for index, px in enumerate(bay * bay_width for bay in range(1, spec.bays)):
+                objects.append(
+                    create_object(
+                        pier,
+                        f"buttress_front_f{floor}_{index}",
+                        mat_lib,
+                        collection,
+                        (px - ext, -ext, wall_z),
+                        0.0,
+                    )
+                )
+                objects.append(
+                    create_object(
+                        pier,
+                        f"buttress_back_f{floor}_{index}",
+                        mat_lib,
+                        collection,
+                        (px - ext, spec.depth + ext, wall_z),
+                        math.pi,
+                    )
+                )
+            side_positions = [0.3, side_length - 0.3]
+            if side_length > 5.4:
+                side_positions[1:1] = [side_length * 0.36, side_length * 0.64]
+            for index, u in enumerate(side_positions):
+                objects.append(
+                    create_object(
+                        pier,
+                        f"buttress_left_f{floor}_{index}",
+                        mat_lib,
+                        collection,
+                        (-ext, spec.depth + ext - WALL_THICKNESS - u, wall_z),
+                        -math.pi / 2,
+                    )
+                )
+                objects.append(
+                    create_object(
+                        pier,
+                        f"buttress_right_f{floor}_{index}",
+                        mat_lib,
+                        collection,
+                        (spec.width + ext, -ext + WALL_THICKNESS + u, wall_z),
+                        math.pi / 2,
+                    )
+                )
 
         # 阳台（二层及以上）
         if floor >= 1 and spec.balcony and style.get("balcony", True):
@@ -395,6 +620,13 @@ def build_building(
             balcony = build_balcony(bx0, bx0 + balcony_w, 0.0, base_z, 1.15, tiles)
             objects.append(
                 create_object(balcony, f"balcony_f{floor}", mat_lib, collection, (-ext, -ext, 0.0))
+            )
+
+        # 环绕木廊（半木构客栈）：二层沿前、左、右三面外挑一圈木廊
+        if medieval.gallery and floor == 1:
+            gallery = build_gallery(floor_w, floor_d, SLAB_THICKNESS, tiles)
+            objects.append(
+                create_object(gallery, "gallery", mat_lib, collection, (-ext, -ext, base_z))
             )
 
     # 室内直跑楼梯（一层到二层）
@@ -419,6 +651,23 @@ def build_building(
 
     # 毛石勒脚与茅草门廊（乡土构件）
     door = _ground_door(spec, style)
+
+    # 悬挑店招：挂在门旁，朝向正面
+    if medieval.shop_sign and door is not None:
+        door_cx, door_w = door
+        sign_x = door_cx + door_w * 0.5 + 1.0
+        if sign_x > spec.width - 0.8:
+            sign_x = door_cx - door_w * 0.5 - 1.0
+        sign_x = min(max(sign_x, 0.7), spec.width - 0.7)
+        sign_z = min(2.55, spec.floor_height - 0.55)
+        sign = build_shop_sign(tiles)
+        objects.append(
+            create_object(sign, "shop_sign", mat_lib, collection, (sign_x, 0.0, sign_z))
+        )
+    if medieval.stepped_base:
+        base = build_stepped_base(spec.width, spec.depth, 1.3, tiles)
+        objects.append(create_object(base, "stepped_base", mat_lib, collection))
+
     if medieval.stone_plinth:
         gaps: list[tuple[float, float]] = []
         step = None
@@ -442,6 +691,19 @@ def build_building(
             create_object(porch, "porch_thatch", mat_lib, collection, (door_cx, 0.0, 0.0))
         )
 
+    # 常春藤与墙根花丛：只在乡土风格里开启
+    if medieval.ivy:
+        veg = build_vegetation(
+            spec.width,
+            spec.depth,
+            spec.floors * spec.floor_height,
+            spec.seed,
+            door,
+            ivy_coverage=medieval.ivy_coverage,
+            ivy_height=medieval.ivy_height,
+        )
+        objects.append(create_object(veg, "vegetation", mat_lib, collection))
+
     # 屋顶：按顶层（含悬挑）轮廓生成
     top_ext = jetty_step * (spec.floors - 1)
     roof_w = spec.width + 2 * top_ext
@@ -449,8 +711,42 @@ def build_building(
     roof_z = spec.floors * spec.floor_height
     roof_top = roof_z + 0.22
     roof_half = (roof_w + 0.9) * 0.5
+    roof_overhang = 0.45
 
-    if spec.roof == "flat":
+    if medieval.lookout:
+        # 石砌瞭望塔：塔身用木挑廊 + 木构瞭望棚收头，不再生成整栋坡屋顶
+        if medieval.hoarding:
+            hoarding = build_hoarding(spec.width, spec.depth, tiles)
+            objects.append(
+                create_object(hoarding, "hoarding", mat_lib, collection, (0.0, 0.0, roof_z))
+            )
+        cabin_z = roof_z + HOARDING_FLOOR_T
+        cabin = build_lookout(spec.width, spec.depth, tiles)
+        objects.append(
+            create_object(cabin, "lookout", mat_lib, collection, (0.0, 0.0, cabin_z))
+        )
+        crown = build_gable_roof(
+            spec.width - 2 * LOOKOUT_INSET,
+            spec.depth - 2 * LOOKOUT_INSET,
+            cabin_z + LOOKOUT_WALL_H + 0.12,
+            spec.roof_pitch,
+            0.30,
+            0.14,
+            tiles,
+            gable_slot="log",
+        )
+        objects.append(
+            create_object(
+                crown,
+                "lookout_roof",
+                mat_lib,
+                collection,
+                (LOOKOUT_INSET, LOOKOUT_INSET, 0.0),
+            )
+        )
+        roof_top = cabin_z + LOOKOUT_WALL_H + 0.26
+        roof_half = (spec.width + 0.6) * 0.5
+    elif spec.roof == "flat":
         roof = build_flat_roof(roof_w, roof_d, roof_z, 0.45, 0.28, tiles)
         objects.append(
             create_object(roof, "roof", mat_lib, collection, (-top_ext, -top_ext, 0.0))
@@ -463,16 +759,95 @@ def build_building(
                     parapet, "parapet_crenel", mat_lib, collection, (-top_ext, -top_ext, 0.0)
                 )
             )
+    elif medieval.nave_roof:
+        # 废墟教堂：屋脊改沿长轴，西端立方形钟塔，东端作出崩缺的山墙。
+        # 屋面只留檐口与屋脊附近的零星石板，椽条与檩条整排外露。
+        nave_half = (roof_d + 2.0 * 0.45) * 0.5
+        nave_rise = math.tan(math.radians(spec.roof_pitch)) * nave_half
+        ridge_z = roof_z + 0.22 + nave_rise
+
+        tower_w = min(max(spec.width * 0.27, 2.8), 4.2)
+        tower_h = ridge_z + spec.floor_height * 0.85
+        tower = build_bell_tower(tower_w, roof_d + 0.14, tower_h, tiles, spec.seed)
+        objects.append(
+            create_object(
+                tower, "bell_tower", mat_lib, collection, (-top_ext - 0.07, -top_ext - 0.07, 0.0)
+            )
+        )
+
+        roof = build_nave_roof(
+            -top_ext - 0.07 + tower_w - 0.12,
+            -top_ext + roof_w + 0.35,
+            roof_d,
+            roof_z,
+            spec.roof_pitch,
+            0.45,
+            0.18,
+            tiles,
+            ruin=0.82,
+            seed=spec.seed,
+            timber_slot="log",
+        )
+        objects.append(create_object(roof, "roof", mat_lib, collection))
+
+        gable = build_broken_gable(
+            roof_d, nave_half, nave_rise, 0.22, 0.30, tiles, seed=spec.seed
+        )
+        objects.append(
+            create_object(
+                gable,
+                "gable_east",
+                mat_lib,
+                collection,
+                (-top_ext + roof_w, -top_ext, roof_z),
+                math.pi / 2,
+            )
+        )
+        if style.get("gable_lancet"):
+            lancet = build_lancet(tiles, 0.62, 1.45, slot=trim_slot)
+            objects.append(
+                create_object(
+                    lancet,
+                    "gable_lancet_east",
+                    mat_lib,
+                    collection,
+                    (-top_ext + roof_w, -top_ext + roof_d * 0.5, roof_top + nave_rise * 0.28),
+                    math.pi / 2,
+                )
+            )
+
+        # 墙脚与室内散落的碎石、断板
+        rubble = build_rubble(spec.width, spec.depth, roof_z, tiles, spec.seed, scale=1.5)
+        objects.append(create_object(rubble, "rubble", mat_lib, collection))
+
+        roof_top = roof_z + 0.18
+        roof_half = nave_half
     else:
-        if medieval.thatch_roof:
+        if medieval.burnt:
+            # 烧毁：一坡残存茅草、一坡残存石瓦，上部缺失，露出炭黑椽条与山墙木架
+            overhang = 0.5
+            roof = build_burnt_roof(
+                roof_w,
+                roof_d,
+                roof_z,
+                spec.roof_pitch,
+                overhang,
+                tiles,
+                seed=spec.seed,
+            )
+            roof_half = (roof_w + 2.0 * overhang) * 0.5
+            roof_top = roof_z + math.tan(math.radians(spec.roof_pitch)) * roof_half
+            roof_overhang = overhang
+        elif medieval.thatch_roof:
             # 厚茅草：0.30 m 草层 + 0.55 m 出檐，屋顶体量不超过墙体
             thickness = 0.30
             overhang = 0.55
+            # 半木构的山墙不做成草面，而是贴外墙材质的三角墙 + 外露木架
+            framed_gable = medieval.timber_frame and not medieval.log_walls
             gable_window = (
-                roof_w * 0.5,
-                roof_z + 1.05,
-                0.62,
-                0.5,
+                None
+                if framed_gable
+                else (roof_w * 0.5, roof_z + 1.05, 0.62, 0.5)
             )
             roof = build_thatch_roof(
                 roof_w,
@@ -482,27 +857,154 @@ def build_building(
                 overhang,
                 thickness,
                 tiles,
+                gable_slot="facade" if framed_gable else "thatch",
                 gable_window=gable_window,
+                gable_overhang=0.02 if framed_gable else 0.18,
+                fringe=0.16 if framed_gable else 0.10,
+                thatch_ridge=framed_gable,
+                shingle_band=(0.33, 0.60) if medieval.shingle_band else None,
             )
             roof_top = roof_z + thickness
             roof_half = (roof_w + 2.0 * overhang) * 0.5
+            roof_overhang = overhang
+
+            if framed_gable:
+                half = roof_w * 0.5 + overhang
+                rise = math.tan(math.radians(spec.roof_pitch)) * half + thickness
+                gable = build_gable_frame(2.0 * half, rise, tiles)
+                gable_x = -top_ext + roof_w * 0.5 - half
+                objects.append(
+                    create_object(
+                        gable, "gable_frame_front", mat_lib, collection, (gable_x, -top_ext - 0.02, roof_z)
+                    )
+                )
+                objects.append(
+                    create_object(
+                        gable,
+                        "gable_frame_back",
+                        mat_lib,
+                        collection,
+                        (gable_x + 2.0 * half, -top_ext + roof_d + 0.02, roof_z),
+                        math.pi,
+                    )
+                )
         else:
             roof = build_gable_roof(
-                roof_w, roof_d, roof_z, spec.roof_pitch, 0.45, 0.22, tiles
+                roof_w,
+                roof_d,
+                roof_z,
+                spec.roof_pitch,
+                0.45,
+                0.22,
+                tiles,
+                ruin=0.6 if medieval.ruined_roof else 0.0,
+                seed=spec.seed,
             )
         objects.append(
             create_object(roof, "roof", mat_lib, collection, (-top_ext, -top_ext, 0.0))
         )
 
-        # 老虎窗：左右两坡对称布置，滑杆数值为每坡数量（茅草屋顶不设老虎窗）
-        if medieval.dormers > 0 and not medieval.thatch_roof:
+        # 悬山收头：屋脊压梁探出山墙，山墙两侧补木封檐板
+        if medieval.ridge_cap and not medieval.burnt:
+            cap = build_ridge_cap(roof_w, roof_d, roof_z, spec.roof_pitch, 0.45, 0.22, tiles)
+            objects.append(
+                create_object(cap, "ridge_cap", mat_lib, collection, (-top_ext, -top_ext, 0.0))
+            )
+
+        # 半木构山墙：三角墙面外加外露木架
+        if style.get("gable_frame") and not medieval.thatch_roof and not medieval.burnt:
+            gable_half = roof_w * 0.5 + 0.45
+            frame_rise = math.tan(math.radians(spec.roof_pitch)) * gable_half
+            frame = build_gable_frame(2.0 * gable_half, frame_rise, tiles)
+            gable_x = -top_ext + roof_w * 0.5 - gable_half
+            objects.append(
+                create_object(
+                    frame,
+                    "gable_frame_front",
+                    mat_lib,
+                    collection,
+                    (gable_x, -top_ext - 0.47, roof_z + 0.22),
+                )
+            )
+            objects.append(
+                create_object(
+                    frame,
+                    "gable_frame_back",
+                    mat_lib,
+                    collection,
+                    (gable_x + 2.0 * gable_half, -top_ext + roof_d + 0.47, roof_z + 0.22),
+                    math.pi,
+                )
+            )
+
+        if style.get("gable_lancet") and not medieval.thatch_roof and not medieval.burnt:
+            gable_rise = math.tan(math.radians(spec.roof_pitch)) * roof_half
+            lancet_w = min(1.1, max(0.7, roof_w * 0.085))
+            lancet_h = lancet_w * 2.3
+            if gable_rise > lancet_h + 1.0:
+                lancet = build_lancet(tiles, lancet_w, lancet_h, slot=trim_slot)
+                lancet_z = roof_top + (gable_rise - lancet_h) * 0.28
+                # 山墙面即屋顶的前后轮廓面，比墙体再挑出 0.45 m 檐口
+                gable_front_y = -top_ext - 0.45
+                gable_back_y = -top_ext + roof_d + 0.45
+                objects.append(
+                    create_object(
+                        lancet,
+                        "gable_lancet_front",
+                        mat_lib,
+                        collection,
+                        (roof_w * 0.5 - top_ext, gable_front_y, lancet_z),
+                    )
+                )
+                objects.append(
+                    create_object(
+                        lancet,
+                        "gable_lancet_back",
+                        mat_lib,
+                        collection,
+                        (roof_w * 0.5 - top_ext, gable_back_y, lancet_z),
+                        math.pi,
+                    )
+                )
+
+        # 石钟塔：立在屋脊靠前的位置，塔脚埋进屋面
+        if medieval.bellcote and spec.roof == "gable" and not medieval.thatch_roof:
+            bell_w, bell_t = 1.5, 0.45
+            ridge_z = roof_z + 0.22 + math.tan(math.radians(spec.roof_pitch)) * roof_half
+            bell = build_bellcote(tiles)
+            objects.append(
+                create_object(
+                    bell,
+                    "bellcote",
+                    mat_lib,
+                    collection,
+                    (
+                        roof_w * 0.5 - bell_w * 0.5 - top_ext,
+                        -top_ext + roof_d * 0.22 - bell_t * 0.5,
+                        ridge_z - 0.62,
+                    ),
+                )
+            )
+
+        # 老虎窗：左右两坡对称布置，滑杆数值为每坡数量
+        # 茅草屋顶的老虎窗要用草顶，并嵌进坡面中段的石瓦腰带里
+        if medieval.dormers > 0:
             count = min(medieval.dormers, 4)
-            body = build_gable_dormer(1.05, 1.35, 1.5, tiles)
+            thatch = medieval.thatch_roof
+            size = (1.25, 1.25, 1.35) if thatch else (1.05, 1.35, 1.5)
+            body = build_gable_dormer(
+                size[0],
+                size[1],
+                size[2],
+                tiles,
+                roof_slot="thatch" if thatch else "roof",
+                body_slot="trim" if thatch else "facade",
+            )
             pitch = math.tan(math.radians(spec.roof_pitch))
-            # 沿坡面向内收 0.9 m，使窗体嵌入坡面而不是挂在檐口
-            inset = 0.9
+            # 沿坡面向内收，使窗体嵌入坡面而不是挂在檐口
+            inset = roof_half * 0.34 if thatch else 0.9
             surface = roof_top + inset * pitch
-            z_base = surface - 0.25
+            z_base = surface - (0.30 if thatch else 0.25)
             for index in range(count):
                 y_center = roof_d * (index + 1) / (count + 1)
                 objects.append(
@@ -511,7 +1013,7 @@ def build_building(
                         f"dormer_right_{index}",
                         mat_lib,
                         collection,
-                        (roof_w + 0.45 - inset - top_ext, y_center - top_ext, z_base),
+                        (roof_w + roof_overhang - inset - top_ext, y_center - top_ext, z_base),
                         0.0,
                     )
                 )
@@ -521,34 +1023,43 @@ def build_building(
                         f"dormer_left_{index}",
                         mat_lib,
                         collection,
-                        (-0.45 + inset - top_ext, y_center - top_ext, z_base),
+                        (-roof_overhang + inset - top_ext, y_center - top_ext, z_base),
                         math.pi,
                     )
                 )
 
-    # 烟囱：穿透屋顶并高出屋面约 1.5 m
+    # 烟囱：穿透屋顶并高出屋面约 1.5 m；多烟囱骑在屋脊上分列两端
     if medieval.chimney:
+        pitch_tan = math.tan(math.radians(spec.roof_pitch))
+        ridge_z = roof_top + roof_half * pitch_tan
+        count = min(max(1, medieval.chimney_count), 4)
+        spots: list[tuple[float, float, float]] = []
         if spec.roof == "flat":
-            surface = roof_top
-            chim_x = roof_w * 0.72
-        else:
+            spots.append((roof_w * 0.72, roof_d * 0.68, roof_top))
+        elif count <= 1:
             cx = roof_w * 0.5
             chim_x = cx + roof_half * 0.38
-            surface = roof_top + (roof_half - abs(chim_x - cx)) * math.tan(
-                math.radians(spec.roof_pitch)
+            spots.append(
+                (chim_x, roof_d * 0.68, roof_top + (roof_half - abs(chim_x - cx)) * pitch_tan)
             )
+        else:
+            for index in range(count):
+                # 骑脊的烟囱靠向两端山墙
+                frac = 0.18 + 0.64 * index / (count - 1)
+                spots.append((roof_w * 0.5, roof_d * frac, ridge_z))
         # 茅草农舍使用毛石烟囱，与勒脚呼应
         slot = "stone" if (medieval.thatch_roof or medieval.stone_plinth) else "trim"
         chimney = build_chimney(0.78, 0.62, 2.1, tiles, slot)
-        objects.append(
-            create_object(
-                chimney,
-                "chimney",
-                mat_lib,
-                collection,
-                (chim_x - top_ext, roof_d * 0.68 - top_ext, surface - 1.1),
+        for index, (chim_x, chim_y, surface) in enumerate(spots):
+            objects.append(
+                create_object(
+                    chimney,
+                    "chimney" if len(spots) == 1 else f"chimney_{index}",
+                    mat_lib,
+                    collection,
+                    (chim_x - top_ext, chim_y - top_ext, surface - 1.1),
+                )
             )
-        )
 
     for obj in objects:
         obj.parent = root
@@ -570,6 +1081,7 @@ def _collect_stats(objects: list[bpy.types.Object], mat_lib: MaterialLibrary) ->
             if mat is not None:
                 materials.add(mat.name)
 
+    bpy.context.view_layer.update()
     bbox_min = [float("inf")] * 3
     bbox_max = [float("-inf")] * 3
     for obj in objects:

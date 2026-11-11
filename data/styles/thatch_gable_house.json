@@ -1,0 +1,43 @@
+{
+  "id": "thatch_gable_house",
+  "name": "茅草木筋山墙屋",
+  "description": "取消门廊的半木构草顶民居：进深更小、山墙木架完整外露，适合看正立面；灰泥墙、厚茅草顶、毛石勒脚与石烟囱，墙脚有常春藤与花丛。",
+  "window_w": 0.68,
+  "window_h": 0.62,
+  "sill_h": 1.55,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "thatch_straw",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": true,
+    "log_walls": false,
+    "thatch_roof": true,
+    "stone_plinth": true,
+    "porch": false,
+    "ivy": true,
+    "ivy_coverage": 0.7,
+    "ivy_height": 0.9
+  },
+  "preset": {
+    "width": 7.2,
+    "depth": 6.2,
+    "bays": 2,
+    "floors": 1,
+    "floor_height": 2.7,
+    "roof_pitch": 42,
+    "balcony": false
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "id": "thatch_cottage",
+  "name": "茅草木筋农舍",
+  "description": "半木构草顶农舍：奶油灰泥墙填深色橡木骨架，山墙做出外露木构架，厚茅草大出檐配散草檐口，毛石勒脚、石烟囱与常春藤花丛。",
+  "window_w": 0.72,
+  "window_h": 0.66,
+  "sill_h": 1.5,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "thatch_straw",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": true,
+    "log_walls": false,
+    "thatch_roof": true,
+    "stone_plinth": true,
+    "porch": true,
+    "ivy": true,
+    "ivy_coverage": 0.55,
+    "ivy_height": 0.75
+  },
+  "preset": {
+    "width": 8.4,
+    "depth": 6.4,
+    "bays": 2,
+    "floors": 1,
+    "floor_height": 2.75,
+    "roof_pitch": 40,
+    "balcony": false
+  }
+}

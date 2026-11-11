@@ -1,0 +1,51 @@
+{
+  "id": "ruined_chapel",
+  "name": "废墟石教堂",
+  "description": "石砌哥特小教堂：西端一座断顶的方形钟塔，塔身上部有成对尖拱百叶窗；中殿尖拱窗配石窗棂，外贴石扶壁，屋脊沿长轴的屋面大面塌落，露出密排的椽条与檩条，东端山墙参差崩缺，墙脚散落碎石与常春藤。",
+  "window_w": 0.76,
+  "window_h": 2.0,
+  "sill_h": 1.15,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "trim_slot": "stone",
+  "opening_trims": true,
+  "gable_lancet": true,
+  "palette": {
+    "facade": "stone_ashlar",
+    "trim": "timber_oak",
+    "log": "Wood092",
+    "roof": "stone_rubble",
+    "stone": "stone_ashlar",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": false,
+    "arch_openings": true,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": false,
+    "log_walls": false,
+    "thatch_roof": false,
+    "stone_plinth": true,
+    "porch": false,
+    "ivy": true,
+    "ivy_coverage": 0.45,
+    "ivy_height": 0.6,
+    "buttresses": true,
+    "bellcote": false,
+    "ruined_roof": true,
+    "bell_tower": true,
+    "nave_roof": true
+  },
+  "preset": {
+    "width": 12.0,
+    "depth": 6.6,
+    "bays": 5,
+    "floors": 1,
+    "floor_height": 4.6,
+    "roof_pitch": 38,
+    "balcony": false
+  }
+}

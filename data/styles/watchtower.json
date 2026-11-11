@@ -1,0 +1,50 @@
+{
+  "id": "watchtower",
+  "name": "石砌瞭望塔",
+  "description": "石砌箭孔瞭望塔：三级收分的条石塔座、笔直的塔身只开窄箭孔，塔顶一圈斜撑挑出的木挑廊挂着木梯，挑廊当中是木板瞭望棚与出檐瓦顶。",
+  "window_w": 0.18,
+  "window_h": 0.95,
+  "sill_h": 1.45,
+  "windows_per_bay": 1,
+  "door": false,
+  "balcony": false,
+  "trim_slot": "trim",
+  "slab_slot": "facade",
+  "opening_trims": false,
+  "palette": {
+    "facade": "stone_ashlar",
+    "trim": "timber_oak",
+    "roof": "roof_shingle",
+    "stone": "stone_rubble",
+    "log": "timber_oak",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": false,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": false,
+    "log_walls": false,
+    "thatch_roof": false,
+    "stone_plinth": false,
+    "porch": false,
+    "ivy": false,
+    "buttresses": false,
+    "bellcote": false,
+    "ruined_roof": false,
+    "stepped_base": true,
+    "hoarding": true,
+    "lookout": true
+  },
+  "preset": {
+    "width": 4.6,
+    "depth": 4.6,
+    "bays": 1,
+    "floors": 3,
+    "floor_height": 3.4,
+    "roof_pitch": 30,
+    "balcony": false
+  }
+}

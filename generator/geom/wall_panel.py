@@ -45,16 +45,17 @@ def build_wall_panel(
     openings: list[Opening],
     tiles: dict[str, float],
     glazing: bool = True,
+    edge_slot: str = "trim",
 ) -> MeshBuilder:
     builder = MeshBuilder(tiles)
 
     clean: list[Opening] = []
     for op in openings:
         x0 = max(0.03, min(op.x0, width - 0.03))
-        x1 = max(x0 + 0.05, min(op.x1, width - 0.03))
+        x1 = max(x0 + 0.02, min(op.x1, width - 0.03))
         z0 = max(0.0, min(op.z0, height - 0.05))
-        z1 = max(z0 + 0.05, min(op.z1, height - 0.0))
-        if x1 - x0 < 0.1 or z1 - z0 < 0.1:
+        z1 = max(z0 + 0.02, min(op.z1, height - 0.0))
+        if x1 - x0 < 0.02 or z1 - z0 < 0.02:
             continue
         clean.append(Opening(x0, x1, z0, z1, op.kind))
 
@@ -66,8 +67,11 @@ def build_wall_panel(
     xs_sorted = _merge_close(xs)
     zs_sorted = _merge_close(zs)
 
+    def in_grid(ix: int, iz: int) -> bool:
+        return 0 <= ix < len(xs_sorted) - 1 and 0 <= iz < len(zs_sorted) - 1
+
     def is_solid(ix: int, iz: int) -> bool:
-        if ix < 0 or iz < 0 or ix >= len(xs_sorted) - 1 or iz >= len(zs_sorted) - 1:
+        if not in_grid(ix, iz):
             return False
         cx = (xs_sorted[ix] + xs_sorted[ix + 1]) * 0.5
         cz = (zs_sorted[iz] + zs_sorted[iz + 1]) * 0.5
@@ -75,6 +79,10 @@ def build_wall_panel(
             if op.x0 < cx < op.x1 and op.z0 < cz < op.z1:
                 return False
         return True
+
+    def side_slot(ix: int, iz: int) -> str:
+        """墙板外缘（转角、墙顶、墙脚）用外墙材质，只有洞口侧壁才用 edge_slot。"""
+        return "facade" if not in_grid(ix, iz) else edge_slot
 
     for ix in range(len(xs_sorted) - 1):
         x0, x1 = xs_sorted[ix], xs_sorted[ix + 1]
@@ -93,26 +101,26 @@ def build_wall_panel(
                 "facade",
             )
 
-            # 四邻：邻单元不存在（墙外）或为洞口时，补侧壁
+            # 四邻：墙板外缘（转角、墙顶墙脚）用外墙材质封口，只有洞口才用 edge_slot
             if not is_solid(ix - 1, iz):
                 builder.add_face(
                     [(x0, 0.0, z0), (x0, thickness, z0), (x0, thickness, z1), (x0, 0.0, z1)],
-                    "trim",
+                    side_slot(ix - 1, iz),
                 )
             if not is_solid(ix + 1, iz):
                 builder.add_face(
                     [(x1, thickness, z0), (x1, 0.0, z0), (x1, 0.0, z1), (x1, thickness, z1)],
-                    "trim",
+                    side_slot(ix + 1, iz),
                 )
             if not is_solid(ix, iz - 1):
                 builder.add_face(
                     [(x0, 0.0, z0), (x1, 0.0, z0), (x1, thickness, z0), (x0, thickness, z0)],
-                    "trim",
+                    side_slot(ix, iz - 1),
                 )
             if not is_solid(ix, iz + 1):
                 builder.add_face(
                     [(x0, thickness, z1), (x1, thickness, z1), (x1, 0.0, z1), (x0, 0.0, z1)],
-                    "trim",
+                    side_slot(ix, iz + 1),
                 )
 
     if glazing:

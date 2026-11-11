@@ -1,0 +1,41 @@
+{
+  "id": "thatch_barn",
+  "name": "茅草木筋谷仓",
+  "description": "开间更多的半木构草顶谷仓：外墙少窗、屋面占比更大，保留毛石勒脚与石烟囱，适合做村落里的附属建筑。",
+  "window_w": 0.6,
+  "window_h": 0.55,
+  "sill_h": 1.7,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "thatch_straw",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble",
+    "door": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 0,
+    "chimney": true,
+    "log_walls": false,
+    "thatch_roof": true,
+    "stone_plinth": true,
+    "porch": false,
+    "ivy": false
+  },
+  "preset": {
+    "width": 12.0,
+    "depth": 7.0,
+    "bays": 3,
+    "floors": 1,
+    "floor_height": 2.9,
+    "roof_pitch": 38,
+    "balcony": false
+  }
+}

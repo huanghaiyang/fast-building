@@ -84,6 +84,24 @@ export interface Medieval {
   thatch_roof: boolean;
   stone_plinth: boolean;
   porch: boolean;
+  ivy: boolean;
+  ivy_coverage: number;
+  ivy_height: number;
+  buttresses: boolean;
+  bellcote: boolean;
+  ruined_roof: boolean;
+  bell_tower: boolean;
+  nave_roof: boolean;
+  stepped_base: boolean;
+  hoarding: boolean;
+  lookout: boolean;
+  gallery: boolean;
+  shop_sign: boolean;
+  ridge_cap: boolean;
+  shingle_band: boolean;
+  chimney_count: number;
+  collapsed: boolean;
+  burnt: boolean;
 }
 
 export interface Footprint {
@@ -99,6 +117,8 @@ export interface Footprint {
   lod: number;
   seed: number;
   balcony: boolean;
+  smooth: boolean;
+  subdiv: number;
   openings: Openings;
   medieval: Medieval;
 }

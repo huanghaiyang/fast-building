@@ -1,0 +1,47 @@
+{
+  "id": "shingle_thatch_house",
+  "name": "石瓦腰带茅草屋",
+  "description": "半木构茅草农舍：厚草顶中段压一条错缝叠铺的石瓦腰带，带内嵌一座草顶老虎窗；屋脊两端各立一座毛石烟囱。灰泥墙面混排木板填充的框架开间，毛石勒脚、深色橡木骨架与木板门。",
+  "window_w": 0.6,
+  "window_h": 0.6,
+  "sill_h": 1.5,
+  "windows_per_bay": 1,
+  "door": true,
+  "balcony": false,
+  "trim_slot": "trim",
+  "slab_slot": "trim",
+  "plank_panels": true,
+  "palette": {
+    "facade": "Plaster004",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble",
+    "door": "Planks037A",
+    "log": "timber_oak"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "arch_openings": false,
+    "jetty": false,
+    "crenellation": false,
+    "dormers": 1,
+    "chimney": true,
+    "chimney_count": 2,
+    "log_walls": false,
+    "thatch_roof": true,
+    "stone_plinth": true,
+    "porch": false,
+    "ivy": false,
+    "shingle_band": true
+  },
+  "preset": {
+    "width": 7.2,
+    "depth": 9.2,
+    "bays": 3,
+    "floors": 1,
+    "floor_height": 2.95,
+    "roof_pitch": 42,
+    "balcony": false
+  }
+}

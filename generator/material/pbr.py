@@ -26,6 +26,11 @@ DEFAULT_TILES = {
     "log": 0.9,
     "thatch": 1.5,
     "stone": 1.6,
+    # 炭化构件：纯色材质，尺寸只影响 UV 密度
+    "char": 1.2,
+    # 植被：纯色材质，尺寸只影响 UV 密度
+    "leaf": 0.5,
+    "flower": 0.4,
 }
 
 FALLBACK_COLORS = {
@@ -33,10 +38,14 @@ FALLBACK_COLORS = {
     "trim": (0.68, 0.67, 0.63, 1.0),
     "roof": (0.28, 0.13, 0.10, 1.0),
     "door": (0.09, 0.07, 0.06, 1.0),
-    "glass": (0.55, 0.72, 0.80, 0.32),
+    "glass": (0.06, 0.08, 0.09, 0.85),
     "log": (0.30, 0.18, 0.10, 1.0),
     "thatch": (0.62, 0.46, 0.18, 1.0),
     "stone": (0.44, 0.43, 0.40, 1.0),
+    # 炭化木：近乎全黑，粗糙度高
+    "char": (0.021, 0.019, 0.017, 1.0),
+    "leaf": (0.19, 0.38, 0.12, 1.0),
+    "flower": (0.92, 0.89, 0.46, 1.0),
 }
 
 
@@ -68,8 +77,10 @@ class MaterialLibrary:
             candidate = palette.get(key)
             return candidate if self._set_exists(candidate) else facade
 
+        # 风格可以指定外墙贴图（例如半木农舍固定用奶油灰泥）
+        facade_override = palette.get("facade")
         mapping = {
-            "facade": facade,
+            "facade": facade_override if self._set_exists(facade_override) else facade,
             "trim": pick("trim"),
             "roof": pick("roof"),
             # 入户门默认使用深色实体材质，不跟随外墙贴图
@@ -145,8 +156,8 @@ class MaterialLibrary:
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf:
             bsdf.inputs["Base Color"].default_value = FALLBACK_COLORS["glass"]
-            bsdf.inputs["Alpha"].default_value = 0.32
-            bsdf.inputs["Roughness"].default_value = 0.06
+            bsdf.inputs["Alpha"].default_value = 0.85
+            bsdf.inputs["Roughness"].default_value = 0.38
             bsdf.inputs["Metallic"].default_value = 0.0
             if "IOR" in bsdf.inputs:
                 bsdf.inputs["IOR"].default_value = 1.45

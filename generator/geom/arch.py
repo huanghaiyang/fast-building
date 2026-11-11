@@ -14,8 +14,8 @@ from .wall_panel import Opening
 
 # 等边尖拱矢高 / 跨度
 ARCH_RISE_RATIO = math.sqrt(3.0) * 0.5
-STRIP_COUNT = 6
-MIN_STRIP = 0.08
+STRIP_COUNT = 14
+MIN_STRIP = 0.04
 
 
 def arch_rise(width: float, height: float) -> float:
@@ -23,7 +23,7 @@ def arch_rise(width: float, height: float) -> float:
     return max(0.18, min(ARCH_RISE_RATIO * width, height * 0.6))
 
 
-def _half_span(width: float, dz: float) -> float:
+def half_span(width: float, dz: float) -> float:
     """起拱点以上 dz 处的半宽；两段圆弧相交处收敛为 0。"""
     return max(0.0, math.sqrt(max(width * width - dz * dz, 0.0)) - width * 0.5)
 
@@ -45,7 +45,7 @@ def arch_strips(op: Opening, steps: int = STRIP_COUNT) -> list[Opening]:
     for index in range(steps):
         dz0 = rise * index / steps
         dz1 = rise * (index + 1) / steps
-        half = _half_span(width, (dz0 + dz1) * 0.5)
+        half = half_span(width, (dz0 + dz1) * 0.5)
         if half * 2 < MIN_STRIP:
             continue
         strips.append(
@@ -91,13 +91,14 @@ def add_opening_pane(
     points: list[tuple[float, float, float]] = [(x0, y, z0), (x0, y, spring)]
     for index in range(1, samples + 1):
         dz = rise * (index / samples) * 0.999
-        points.append((cx - _half_span(width, dz), y, spring + dz))
+        points.append((cx - half_span(width, dz), y, spring + dz))
     for index in range(samples, 0, -1):
         dz = rise * (index / samples) * 0.999
-        points.append((cx + _half_span(width, dz), y, spring + dz))
+        points.append((cx + half_span(width, dz), y, spring + dz))
     points.append((x1, y, spring))
     points.append((x1, y, z0))
 
     clean = _dedupe(points)
     if len(clean) >= 3:
         builder.add_face(clean, slot)
+

@@ -16,6 +16,7 @@ def build_slab(
     thickness: float,
     tiles: dict[str, float],
     hole: tuple[float, float, float, float] | None = None,
+    slot: str = "trim",
 ) -> MeshBuilder:
     """生成一块楼板。
 
@@ -25,7 +26,7 @@ def build_slab(
     z0, z1 = z, z + thickness
 
     if hole is None:
-        builder.add_box((0.0, 0.0, z0), (width, depth, z1), "trim")
+        builder.add_box((0.0, 0.0, z0), (width, depth, z1), slot)
         return builder
 
     hx0, hy0, hx1, hy1 = hole
@@ -35,8 +36,8 @@ def build_slab(
     hy1 = max(hy0 + 0.2, min(hy1, depth - 0.1))
 
     # 四块板：左右两条 + 中间前后两段
-    builder.add_box((0.0, 0.0, z0), (hx0, depth, z1), "trim")
-    builder.add_box((hx1, 0.0, z0), (width, depth, z1), "trim")
-    builder.add_box((hx0, 0.0, z0), (hx1, hy0, z1), "trim")
-    builder.add_box((hx0, hy1, z0), (hx1, depth, z1), "trim")
+    builder.add_box((0.0, 0.0, z0), (hx0, depth, z1), slot)
+    builder.add_box((hx1, 0.0, z0), (width, depth, z1), slot)
+    builder.add_box((hx0, 0.0, z0), (hx1, hy0, z1), slot)
+    builder.add_box((hx0, hy1, z0), (hx1, depth, z1), slot)
     return builder

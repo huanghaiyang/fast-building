@@ -28,6 +28,8 @@ const DEFAULT_FORM: Footprint = {
   lod: 0,
   seed: 42,
   balcony: true,
+  smooth: true,
+  subdiv: 1,
   openings: {
     window_w: 1.4,
     window_h: 1.6,
@@ -46,6 +48,24 @@ const DEFAULT_FORM: Footprint = {
     thatch_roof: false,
     stone_plinth: false,
     porch: false,
+    ivy: false,
+    ivy_coverage: 0.6,
+    ivy_height: 0.8,
+    buttresses: false,
+    bellcote: false,
+    ruined_roof: false,
+    bell_tower: false,
+    nave_roof: false,
+    stepped_base: false,
+    hoarding: false,
+    lookout: false,
+    gallery: false,
+    shop_sign: false,
+    ridge_cap: false,
+    shingle_band: false,
+    chimney_count: 1,
+    collapsed: false,
+    burnt: false,
   },
 };
 
@@ -198,6 +218,24 @@ export default function App() {
               thatch_roof: preset.thatch_roof ?? current.medieval.thatch_roof,
               stone_plinth: preset.stone_plinth ?? current.medieval.stone_plinth,
               porch: preset.porch ?? current.medieval.porch,
+              ivy: preset.ivy ?? current.medieval.ivy,
+              ivy_coverage: preset.ivy_coverage ?? current.medieval.ivy_coverage,
+              ivy_height: preset.ivy_height ?? current.medieval.ivy_height,
+              buttresses: preset.buttresses ?? current.medieval.buttresses,
+              bellcote: preset.bellcote ?? current.medieval.bellcote,
+              ruined_roof: preset.ruined_roof ?? current.medieval.ruined_roof,
+              bell_tower: preset.bell_tower ?? current.medieval.bell_tower,
+              nave_roof: preset.nave_roof ?? current.medieval.nave_roof,
+              stepped_base: preset.stepped_base ?? current.medieval.stepped_base,
+              hoarding: preset.hoarding ?? current.medieval.hoarding,
+              lookout: preset.lookout ?? current.medieval.lookout,
+              gallery: preset.gallery ?? current.medieval.gallery,
+              shop_sign: preset.shop_sign ?? current.medieval.shop_sign,
+              ridge_cap: preset.ridge_cap ?? current.medieval.ridge_cap,
+              shingle_band: preset.shingle_band ?? current.medieval.shingle_band,
+              chimney_count: preset.chimney_count ?? current.medieval.chimney_count,
+              collapsed: preset.collapsed ?? current.medieval.collapsed,
+              burnt: preset.burnt ?? current.medieval.burnt,
             };
           }
           // 风格自带的体量预设（例如茅草农舍默认单层小体量）
@@ -212,6 +250,15 @@ export default function App() {
             next.balcony = geometry.balcony ?? next.balcony;
             next.medieval.jetty = false;
             next.medieval.dormers = 0;
+          }
+          // 风格自带的开洞尺寸（教堂用窄高的尖拱窗）
+          if (style) {
+            next.openings = {
+              ...next.openings,
+              window_w: style.window_w ?? next.openings.window_w,
+              window_h: style.window_h ?? next.openings.window_h,
+              sill_h: style.sill_h ?? next.openings.sill_h,
+            };
           }
         }
         return next;

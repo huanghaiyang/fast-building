@@ -43,6 +43,33 @@ class Medieval:
     thatch_roof: bool = False
     stone_plinth: bool = False
     porch: bool = False
+    # 植被：常春藤、墙根灌木与草丛
+    ivy: bool = False
+    # 藤蔓生长状态：覆盖度（每面墙几股）与爬升高度占墙高的比例
+    ivy_coverage: float = 0.6
+    ivy_height: float = 0.8
+    # 哥特石构与废墟
+    buttresses: bool = False
+    bellcote: bool = False
+    ruined_roof: bool = False
+    # 废墟教堂：西端方形钟塔、屋脊沿长轴的残破坡顶与崩缺山墙
+    bell_tower: bool = False
+    nave_roof: bool = False
+    # 石砌瞭望塔：阶梯石基、塔顶悬挑木挑廊、挑廊上的木构瞭望棚
+    stepped_base: bool = False
+    hoarding: bool = False
+    lookout: bool = False
+    # 破败半木构客栈：环绕木廊、悬挑店招、悬山脊梁与封檐板
+    gallery: bool = False
+    shop_sign: bool = False
+    ridge_cap: bool = False
+    # 茅草农舍：坡面中段的石瓦腰带、烟囱数量（双烟囱骑屋脊）
+    shingle_band: bool = False
+    chimney_count: int = 1
+    # 塌毁石屋：残墙断口 + 瓦砾堆 + 烧焦梁架，整栋不生成楼板与屋顶
+    collapsed: bool = False
+    # 烧毁的木构农舍：灰泥剥落成炭斑，屋顶只剩一坡茅草一坡石瓦
+    burnt: bool = False
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Medieval":
@@ -58,6 +85,24 @@ class Medieval:
             thatch_roof=bool(data.get("thatch_roof", False)),
             stone_plinth=bool(data.get("stone_plinth", False)),
             porch=bool(data.get("porch", False)),
+            ivy=bool(data.get("ivy", False)),
+            ivy_coverage=min(1.0, max(0.0, float(data.get("ivy_coverage", 0.6)))),
+            ivy_height=min(1.0, max(0.05, float(data.get("ivy_height", 0.8)))),
+            buttresses=bool(data.get("buttresses", False)),
+            bellcote=bool(data.get("bellcote", False)),
+            ruined_roof=bool(data.get("ruined_roof", False)),
+            bell_tower=bool(data.get("bell_tower", False)),
+            nave_roof=bool(data.get("nave_roof", False)),
+            stepped_base=bool(data.get("stepped_base", False)),
+            hoarding=bool(data.get("hoarding", False)),
+            lookout=bool(data.get("lookout", False)),
+            gallery=bool(data.get("gallery", False)),
+            shop_sign=bool(data.get("shop_sign", False)),
+            ridge_cap=bool(data.get("ridge_cap", False)),
+            shingle_band=bool(data.get("shingle_band", False)),
+            chimney_count=min(4, max(1, int(data.get("chimney_count", 1)))),
+            collapsed=bool(data.get("collapsed", False)),
+            burnt=bool(data.get("burnt", False)),
         )
 
 
@@ -77,6 +122,9 @@ class Spec:
     lod: int = 0
     seed: int = 42
     balcony: bool = True
+    # 渲染质量：平滑着色与 Catmull-Clark 细分级别（0 表示不细分）
+    smooth: bool = True
+    subdiv: int = 1
     openings: Openings = field(default_factory=Openings)
     medieval: Medieval = field(default_factory=Medieval)
 
@@ -95,6 +143,8 @@ class Spec:
             lod=int(data.get("lod", 0)),
             seed=int(data.get("seed", 42)),
             balcony=bool(data.get("balcony", True)),
+            smooth=bool(data.get("smooth", True)),
+            subdiv=int(data.get("subdiv", 1)),
             openings=Openings.from_dict(data.get("openings")),
             medieval=Medieval.from_dict(data.get("medieval")),
         )
@@ -118,6 +168,8 @@ class Spec:
             raise ValueError("roof_pitch 需在 0 ~ 70 度之间")
         if self.lod not in (0, 1):
             raise ValueError("lod 仅支持 0 / 1")
+        if self.subdiv not in (0, 1, 2):
+            raise ValueError("subdiv 仅支持 0 / 1 / 2")
         if not (0 <= self.medieval.dormers <= 4):
             raise ValueError("dormers 需在 0 ~ 4 之间")
 

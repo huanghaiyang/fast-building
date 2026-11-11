@@ -89,7 +89,7 @@ export function ControlPanel(props: Props) {
             <div className="input-wrap">
               <input
                 type="number"
-                min={6}
+                min={4}
                 max={60}
                 step={0.5}
                 value={form.width}
@@ -103,7 +103,7 @@ export function ControlPanel(props: Props) {
             <div className="input-wrap">
               <input
                 type="number"
-                min={6}
+                min={4}
                 max={40}
                 step={0.5}
                 value={form.depth}
@@ -167,6 +167,38 @@ export function ControlPanel(props: Props) {
           unit="°"
           onChange={(value) => onChange({ roof_pitch: value })}
         />
+      </section>
+
+      <section className="group">
+        <h3>几何质量</h3>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.smooth}
+            onChange={(event) => onChange({ smooth: event.target.checked })}
+          />
+          <span>平滑着色（按二面角保留硬边）</span>
+        </label>
+        <div className="field">
+          <span className="field-label">细分级别</span>
+          <div className="segmented three">
+            {[
+              { value: 0, label: "关" },
+              { value: 1, label: "1 级" },
+              { value: 2, label: "2 级" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={form.subdiv === option.value ? "active" : ""}
+                onClick={() => onChange({ subdiv: option.value })}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="hint">细分越高级曲面越圆润，但面数与文件体积同步上升；2 级仅建议近景查看。</p>
       </section>
 
       <section className="group">
@@ -285,6 +317,14 @@ export function ControlPanel(props: Props) {
             />
             <span>砖石烟囱</span>
           </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.burnt}
+              onChange={(event) => onMedievalChange({ burnt: event.target.checked })}
+            />
+            <span>烧毁木构</span>
+          </label>
         </div>
         <Slider
           label="老虎窗（每坡）"
@@ -294,7 +334,139 @@ export function ControlPanel(props: Props) {
           step={1}
           onChange={(value) => onMedievalChange({ dormers: value })}
         />
-        <p className="hint">垛口女儿墙仅平屋顶生效，老虎窗仅双坡生效。</p>
+        <p className="hint">垛口女儿墙仅平屋顶生效，老虎窗仅双坡生效；烧毁木构会把墙面烧出炭斑，并把屋顶换成只剩一坡茅草、一坡石瓦的残架。</p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
+          <h3>哥特石构与废墟</h3>
+          <span>展开</span>
+        </summary>
+        <div className="medieval-grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.buttresses}
+              onChange={(event) => onMedievalChange({ buttresses: event.target.checked })}
+            />
+            <span>石扶壁</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.bellcote}
+              onChange={(event) => onMedievalChange({ bellcote: event.target.checked })}
+            />
+            <span>屋脊石钟塔</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.ruined_roof}
+              onChange={(event) => onMedievalChange({ ruined_roof: event.target.checked })}
+            />
+            <span>破损屋顶</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.bell_tower}
+              onChange={(event) => onMedievalChange({ bell_tower: event.target.checked })}
+            />
+            <span>方形钟塔</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.nave_roof}
+              onChange={(event) => onMedievalChange({ nave_roof: event.target.checked })}
+            />
+            <span>纵向残顶</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.collapsed}
+              onChange={(event) => onMedievalChange({ collapsed: event.target.checked })}
+            />
+            <span>整栋塌毁</span>
+          </label>
+        </div>
+        <p className="hint">
+          扶壁沿开间分界贴在墙外；石钟塔仅双坡生效；破损屋顶会抽掉部分瓦面并露出椽条；整栋塌毁会把建筑换成残墙、瓦砾与焦木梁架，不再生成楼板与屋顶。方形钟塔在西端立起一座断顶石塔，纵向残顶把屋脊改到长轴并换成大面塌落、露椽的教堂屋顶。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
+          <h3>瞭望塔构件</h3>
+          <span>展开</span>
+        </summary>
+        <div className="medieval-grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.stepped_base}
+              onChange={(event) => onMedievalChange({ stepped_base: event.target.checked })}
+            />
+            <span>阶梯石台基</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.hoarding}
+              onChange={(event) => onMedievalChange({ hoarding: event.target.checked })}
+            />
+            <span>塔顶木挑廊</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.lookout}
+              onChange={(event) => onMedievalChange({ lookout: event.target.checked })}
+            />
+            <span>木构瞭望棚</span>
+          </label>
+        </div>
+        <p className="hint">
+          石台基为三级收分的条石塔座；挑廊由斜撑托架外挑并带木梯；瞭望棚会替换整栋坡屋顶，改为一间带瓦顶的木板小屋。
+        </p>
+      </details>
+
+      <details className="group collapsible">
+        <summary>
+          <h3>半木构客栈</h3>
+          <span>展开</span>
+        </summary>
+        <div className="medieval-grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.gallery}
+              onChange={(event) => onMedievalChange({ gallery: event.target.checked })}
+            />
+            <span>环绕木廊</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.shop_sign}
+              onChange={(event) => onMedievalChange({ shop_sign: event.target.checked })}
+            />
+            <span>悬挑店招</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.ridge_cap}
+              onChange={(event) => onMedievalChange({ ridge_cap: event.target.checked })}
+            />
+            <span>脊梁与封檐板</span>
+          </label>
+        </div>
+        <p className="hint">
+          木廊沿二层前、左、右三面外挑一圈，带栏杆与斜撑；店招挂在门旁；脊梁两端探出山墙并补博风板。配合「木筋墙 + 悬挑楼层 + 破损屋顶」即得破败客栈。
+        </p>
       </details>
 
       <details className="group collapsible">
@@ -322,6 +494,14 @@ export function ControlPanel(props: Props) {
           <label className="checkbox">
             <input
               type="checkbox"
+              checked={form.medieval.shingle_band}
+              onChange={(event) => onMedievalChange({ shingle_band: event.target.checked })}
+            />
+            <span>石瓦腰带</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
               checked={form.medieval.stone_plinth}
               onChange={(event) => onMedievalChange({ stone_plinth: event.target.checked })}
             />
@@ -335,9 +515,50 @@ export function ControlPanel(props: Props) {
             />
             <span>茅草门廊</span>
           </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={form.medieval.ivy}
+              onChange={(event) => onMedievalChange({ ivy: event.target.checked })}
+            />
+            <span>常春藤与花丛</span>
+          </label>
         </div>
+        {form.medieval.ivy && (
+          <>
+            <Slider
+              label="藤蔓覆盖度"
+              value={Math.round(form.medieval.ivy_coverage * 100)}
+              min={5}
+              max={100}
+              step={5}
+              unit="%"
+              onChange={(value) => onMedievalChange({ ivy_coverage: value / 100 })}
+            />
+            <Slider
+              label="藤蔓生长高度"
+              value={Math.round(form.medieval.ivy_height * 100)}
+              min={5}
+              max={100}
+              step={5}
+              unit="%"
+              onChange={(value) => onMedievalChange({ ivy_height: value / 100 })}
+            />
+            <p className="hint">覆盖度决定每面墙爬几股藤，高度按墙高百分比计算。</p>
+          </>
+        )}
+        {form.medieval.chimney && (
+          <Slider
+            label="烟囱数量"
+            value={form.medieval.chimney_count}
+            min={1}
+            max={4}
+            step={1}
+            onChange={(value) => onMedievalChange({ chimney_count: value })}
+          />
+        )}
         <p className="hint">
-          圆木墙会在转角出挑咬合；茅草屋顶仅在双坡时生效，并自动改用毛石烟囱。
+          圆木墙会在转角出挑咬合；茅草屋顶仅在双坡时生效，并自动改用毛石烟囱。石瓦腰带压在坡面中段，老虎窗会嵌进腰带里；烟囱多于一座时骑屋脊分列两端。
         </p>
       </details>
 
@@ -349,9 +570,9 @@ export function ControlPanel(props: Props) {
         <Slider
           label="窗宽"
           value={form.openings.window_w}
-          min={0.6}
+          min={0.12}
           max={3.2}
-          step={0.1}
+          step={0.02}
           unit=" m"
           onChange={(value) => onOpeningsChange({ window_w: value })}
         />
