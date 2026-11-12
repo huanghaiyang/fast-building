@@ -828,6 +828,145 @@ code,
   color: var(--text);
 }
 
+/* 树形节点选择器 */
+.studio-tree-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(147, 169, 187, 0.85);
+  font-size: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.studio-tree-group:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.studio-tree-caret {
+  font-size: 8px;
+  color: rgba(88, 224, 196, 0.75);
+}
+
+.studio-tree-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-tree-group em {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 8px;
+  color: rgba(147, 169, 187, 0.55);
+}
+
+/* 吸引子 / 排斥子卡片 */
+.studio-attractor {
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: rgba(12, 18, 25, 0.55);
+}
+
+.studio-attractor.active {
+  border-color: rgba(88, 224, 196, 0.45);
+  background: rgba(88, 224, 196, 0.06);
+}
+
+.studio-attractor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 10px;
+  color: var(--text);
+}
+
+.studio-btn.small {
+  padding: 3px 7px;
+  font-size: 9px;
+}
+
+/* 模块预设与智能扩展 */
+.studio-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.studio-preset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 9.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.studio-preset:hover {
+  border-color: rgba(88, 224, 196, 0.45);
+  background: rgba(88, 224, 196, 0.08);
+  color: var(--text);
+}
+
+.studio-preset i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex: none;
+}
+
+.studio-preset span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-preset em {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 8px;
+  color: rgba(147, 169, 187, 0.7);
+}
+
+.studio-expand {
+  margin-bottom: 8px;
+}
+
+.studio-expand > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.studio-expand .studio-row {
+  margin-bottom: 4px;
+}
+
+.studio-expand .studio-btn {
+  flex: 1;
+}
+
 .studio-meta {
   display: flex;
   justify-content: space-between;

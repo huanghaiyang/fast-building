@@ -64,6 +64,8 @@ export interface NodeInfo {
   name: string;
   material: string;
   triangles: number;
+  /** 从模型根到该节点的分组路径，用于构建树形选择器。 */
+  path: string[];
 }
 
 export type { SurfaceSettings } from "./procedural";
@@ -93,12 +95,13 @@ export interface ClipSettings {
 
 export type AttractorMode = "attract" | "repel";
 
-export interface AttractorSettings {
-  enabled: boolean;
+export interface AttractorItem {
+  id: string;
   mode: AttractorMode;
   strength: number;
   radius: number;
   point: [number, number, number];
+  enabled: boolean;
 }
 
 export interface FractureSettings {
@@ -281,7 +284,7 @@ export class BuildingViewer {
   // ---------------------------------------------------------------- 实时工作室
   onNodePick: ((node: NodeInfo | null) => void) | null = null;
   onClipPosition: ((position: number) => void) | null = null;
-  onAttractorPoint: ((point: [number, number, number]) => void) | null = null;
+  onAttractorPicked: ((id: string, point: [number, number, number]) => void) | null = null;
   onBlocksChanged: ((blocks: BlockInfo[]) => void) | null = null;
   onSelectedBlock: ((block: BlockInfo | null) => void) | null = null;
   onSunChange: ((sun: SunSettings) => void) | null = null;
@@ -337,14 +340,10 @@ export class BuildingViewer {
   private baseGroundColor = new THREE.Color("#0f151c");
   private baseGroundRoughness = 0.96;
 
-  private attractorSettings: AttractorSettings = {
-    enabled: false,
-    mode: "attract",
-    strength: 1.6,
-    radius: 4,
-    point: [0, 3, 0],
-  };
+  private attractorItems: AttractorItem[] = [];
+  private attractorEnabled = false;
   private attractorPickMode = false;
+  private attractorPickId: string | null = null;
   private readonly deformBases = new WeakMap<
     THREE.Mesh,
     { position: Float32Array; normal: Float32Array | null }
@@ -993,11 +992,21 @@ export class BuildingViewer {
       : Math.floor((geometry.getAttribute("position")?.count ?? 0) / 3);
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const first = materials[0];
+    const path: string[] = [];
+    let parent = mesh.parent;
+    while (parent && parent !== this.model) {
+      const label = parent.name.trim();
+      if (label && !/^(Scene|Sketchfab_model|GLTF_SceneRootNode)$/i.test(label)) {
+        path.unshift(label);
+      }
+      parent = parent.parent;
+    }
     return {
       id: mesh.userData.nodeId as string,
       name: mesh.name || first?.name || "未命名节点",
       material: first?.name || "未命名材质",
       triangles,
+      path,
     };
   }
 
@@ -1335,18 +1344,26 @@ export class BuildingViewer {
   }
 
   // ================================================================ 吸引子 / 排斥子
-  setAttractor(patch: Partial<AttractorSettings>): void {
-    this.attractorSettings = { ...this.attractorSettings, ...patch };
+  /** 设置吸引子 / 排斥子列表；列表为空或总开关关闭时恢复原始网格。 */
+  setAttractors(items: AttractorItem[], enabled: boolean): void {
+    this.attractorItems = items.map((item) => ({
+      ...item,
+      point: [...item.point] as [number, number, number],
+    }));
+    this.attractorEnabled = enabled;
     this.applyAttractor();
   }
 
-  setAttractorPickMode(enabled: boolean): void {
+  setAttractorPickMode(enabled: boolean, id: string | null = null): void {
     this.attractorPickMode = enabled;
+    this.attractorPickId = enabled ? id : null;
   }
 
   private applyAttractor(): void {
-    const { enabled, mode, strength, radius, point } = this.attractorSettings;
-    const attractor = new THREE.Vector3(...point);
+    const items = this.attractorEnabled
+      ? this.attractorItems.filter((item) => item.enabled && item.radius > 0 && item.strength > 0)
+      : [];
+
     for (const mesh of this.nodes.values()) {
       const geometry = mesh.geometry;
       const attribute = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -1361,7 +1378,7 @@ export class BuildingViewer {
         this.deformBases.set(mesh, base);
       }
 
-      if (!enabled) {
+      if (!items.length) {
         array.set(base.position);
         const normalAttribute = geometry.getAttribute("normal") as THREE.BufferAttribute | undefined;
         if (normalAttribute && base.normal) {
@@ -1370,28 +1387,43 @@ export class BuildingViewer {
         }
       } else {
         mesh.updateWorldMatrix(true, false);
-        const localPoint = attractor
-          .clone()
-          .applyMatrix4(new THREE.Matrix4().copy(mesh.matrixWorld).invert());
+        const inverse = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+        const localItems = items.map((item) => {
+          const point = new THREE.Vector3(...item.point).applyMatrix4(inverse);
+          return {
+            point,
+            radius: item.radius,
+            radiusSq: item.radius * item.radius,
+            strength: item.strength,
+            sign: item.mode === "attract" ? -0.9 : 1,
+          };
+        });
         array.set(base.position);
-        const radiusSq = radius * radius;
         for (let i = 0; i < array.length; i += 3) {
-          const dx = base.position[i] - localPoint.x;
-          const dy = base.position[i + 1] - localPoint.y;
-          const dz = base.position[i + 2] - localPoint.z;
-          const distanceSq = dx * dx + dy * dy + dz * dz;
-          if (distanceSq >= radiusSq || distanceSq < 1e-8) continue;
-          const distance = Math.sqrt(distanceSq);
-          const t = 1 - distance / radius;
-          const falloff = t * t * (3 - 2 * t);
-          const amount = strength * falloff * (mode === "attract" ? -0.9 : 1);
-          array[i] += (dx / distance) * amount;
-          array[i + 1] += (dy / distance) * amount;
-          array[i + 2] += (dz / distance) * amount;
+          let offsetX = 0;
+          let offsetY = 0;
+          let offsetZ = 0;
+          for (const item of localItems) {
+            const dx = base.position[i] - item.point.x;
+            const dy = base.position[i + 1] - item.point.y;
+            const dz = base.position[i + 2] - item.point.z;
+            const distanceSq = dx * dx + dy * dy + dz * dz;
+            if (distanceSq >= item.radiusSq || distanceSq < 1e-8) continue;
+            const distance = Math.sqrt(distanceSq);
+            const t = 1 - distance / item.radius;
+            const falloff = t * t * (3 - 2 * t);
+            const amount = (item.strength * falloff * item.sign) / distance;
+            offsetX += dx * amount;
+            offsetY += dy * amount;
+            offsetZ += dz * amount;
+          }
+          array[i] += offsetX;
+          array[i + 1] += offsetY;
+          array[i + 2] += offsetZ;
         }
       }
       attribute.needsUpdate = true;
-      if (enabled) geometry.computeVertexNormals();
+      if (items.length) geometry.computeVertexNormals();
       geometry.boundingSphere = null;
     }
   }
@@ -1468,7 +1500,7 @@ export class BuildingViewer {
     );
     this.blockSeq += 1;
     mesh.userData.blockId = `block-${this.blockSeq}`;
-    mesh.userData.blockName = `模块 ${this.blockSeq}`;
+    mesh.userData.blockName = patch?.name ?? `模块 ${this.blockSeq}`;
     mesh.scale.set(size[0], size[1], size[2]);
     mesh.position.set(position[0], position[1], position[2]);
     mesh.castShadow = true;
@@ -1517,7 +1549,64 @@ export class BuildingViewer {
       position: [mesh.position.x + 0.9, mesh.position.y, mesh.position.z],
       size: [mesh.scale.x, mesh.scale.y, mesh.scale.z],
       color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+      name: mesh.userData.blockName as string,
     });
+  }
+
+  /**
+   * 智能扩展：沿指定轴把模块延伸一个自身长度。
+   * - 与相邻模块有缝隙时，自动吸附到相邻面，做到无缝拼接；
+   * - 已与相邻模块贴合时，在相邻模块外侧追加一个同尺寸模块。
+   */
+  smartExpand(id: string, axis: "x" | "y" | "z"): void {
+    const mesh = this.blocks.find((item) => item.userData.blockId === id);
+    if (!mesh) return;
+    const box = new THREE.Box3().setFromObject(mesh);
+    const step = mesh.scale[axis];
+    const otherAxes = (["x", "y", "z"] as const).filter((item) => item !== axis);
+    const otherBox = new THREE.Box3();
+    let nearest: { delta: number; max: number } | null = null;
+
+    for (const other of this.blocks) {
+      if (other === mesh) continue;
+      otherBox.setFromObject(other);
+      const overlaps = otherAxes.every(
+        (item) => box.min[item] < otherBox.max[item] - 0.05 && box.max[item] > otherBox.min[item] + 0.05,
+      );
+      if (!overlaps) continue;
+      const delta = otherBox.min[axis] - box.max[axis];
+      if (delta < -0.05 || delta > step + 0.6) continue;
+      if (!nearest || delta < nearest.delta) {
+        nearest = { delta, max: otherBox.max[axis] };
+      }
+    }
+
+    if (nearest && nearest.delta > 0.05) {
+      // 填补缝隙，扩展后与相邻模块贴合
+      const grow = nearest.delta;
+      mesh.scale[axis] += grow;
+      mesh.position[axis] += grow / 2;
+    } else if (nearest) {
+      // 已贴合：在相邻模块外侧追加一个同尺寸模块
+      const position: [number, number, number] = [mesh.position.x, mesh.position.y, mesh.position.z];
+      const index = axis === "x" ? 0 : axis === "y" ? 1 : 2;
+      position[index] = nearest.max + step / 2;
+      this.addBlock({
+        name: mesh.userData.blockName as string,
+        size: [mesh.scale.x, mesh.scale.y, mesh.scale.z],
+        color: `#${(mesh.material as THREE.MeshStandardMaterial).color.getHexString()}`,
+        position,
+      });
+      return;
+    } else {
+      mesh.scale[axis] += step;
+      mesh.position[axis] += step / 2;
+    }
+
+    mesh.updateMatrixWorld();
+    this.selectionHelper?.update();
+    this.onSelectedBlock?.(this.blockInfo(mesh));
+    this.notifyBlocks();
   }
 
   selectBlock(id: string | null): void {
@@ -1838,9 +1927,15 @@ export class BuildingViewer {
           Number(hit.point.y.toFixed(2)),
           Number(hit.point.z.toFixed(2)),
         ];
-        this.attractorSettings = { ...this.attractorSettings, point };
-        this.applyAttractor();
-        this.onAttractorPoint?.(point);
+        const target = this.attractorPickId
+          ? this.attractorItems.find((item) => item.id === this.attractorPickId)
+          : null;
+        if (target) {
+          target.point = point;
+          target.enabled = true;
+          this.applyAttractor();
+          this.onAttractorPicked?.(target.id, point);
+        }
       }
       return;
     }

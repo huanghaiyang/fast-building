@@ -4,9 +4,9 @@
  * 面板本身只维护 UI 状态，所有预览效果直接调用 BuildingViewer 的实时接口。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  AttractorSettings,
+  AttractorItem,
   BlockInfo,
   BuildingViewer,
   ClipAxis,
@@ -96,6 +96,124 @@ const DEFAULT_MATERIAL: NodeMaterialState = {
   opacity: 1,
   transparent: false,
 };
+
+let attractorSeq = 0;
+
+/** 灵活搭建的常用模块预设：点击即可在舞台中添加。 */
+const BLOCK_PRESETS: Array<{
+  name: string;
+  size: [number, number, number];
+  color: string;
+}> = [
+  { name: "墙体", size: [3.2, 2.8, 0.3], color: "#d8ccb6" },
+  { name: "楼板", size: [4, 0.3, 4], color: "#b6ada0" },
+  { name: "立柱", size: [0.45, 3, 0.45], color: "#c8bfae" },
+  { name: "窗洞模块", size: [1.6, 1.6, 0.25], color: "#7d9cad" },
+  { name: "体块", size: [2.2, 2.6, 2.2], color: "#c9b79a" },
+];
+
+interface NodeTreeGroup {
+  key: string;
+  label: string;
+  groups: NodeTreeGroup[];
+  leaves: NodeInfo[];
+}
+
+function buildNodeTree(nodes: NodeInfo[]): NodeTreeGroup {
+  const root: NodeTreeGroup = { key: "", label: "根节点", groups: [], leaves: [] };
+  for (const node of nodes) {
+    let current = root;
+    const path = node.path.length ? node.path : ["未分组"];
+    path.forEach((label, depth) => {
+      const key = path.slice(0, depth + 1).join("/");
+      let group = current.groups.find((item) => item.key === key);
+      if (!group) {
+        group = { key, label, groups: [], leaves: [] };
+        current.groups.push(group);
+      }
+      current = group;
+    });
+    current.leaves.push(node);
+  }
+  return root;
+}
+
+function countTreeLeaves(group: NodeTreeGroup): number {
+  return group.groups.reduce((sum, item) => sum + countTreeLeaves(item), group.leaves.length);
+}
+
+/** 节点树：按模型层级分组，默认全部展开，可折叠。 */
+function NodeTree({
+  nodes,
+  selectedId,
+  onSelect,
+  onHover,
+}: {
+  nodes: NodeInfo[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const tree = useMemo(() => buildNodeTree(nodes), [nodes]);
+
+  const toggle = (key: string) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const renderGroup = (group: NodeTreeGroup, depth: number) => {
+    const leafDepth = group.key ? depth + 1 : depth;
+    const hidden = group.key !== "" && collapsed.has(group.key);
+    return (
+      <div key={group.key || "root"}>
+        {group.key !== "" && (
+          <button
+            type="button"
+            className="studio-tree-group"
+            style={{ paddingLeft: 4 + depth * 12 }}
+            onClick={() => toggle(group.key)}
+          >
+            <span className="studio-tree-caret">{hidden ? "▸" : "▾"}</span>
+            <span className="studio-tree-label">{group.label}</span>
+            <em>{countTreeLeaves(group)}</em>
+          </button>
+        )}
+        {!hidden && (
+          <>
+            {group.groups.map((child) => renderGroup(child, leafDepth))}
+            {group.leaves.map((node) => (
+              <button
+                key={node.id}
+                type="button"
+                className={`studio-node ${selectedId === node.id ? "active" : ""}`}
+                style={{ marginLeft: 4 + leafDepth * 12 }}
+                onMouseEnter={() => onHover(node.id)}
+                onFocus={() => onHover(node.id)}
+                onBlur={() => onHover(null)}
+                onClick={() => onSelect(node.id)}
+              >
+                <span>{node.name}</span>
+                <em>{node.triangles.toLocaleString()} 面</em>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="studio-node-list" onMouseLeave={() => onHover(null)}>
+      {nodes.length === 0 && <p className="studio-hint">加载模型后可在此选择节点。</p>}
+      {renderGroup(tree, 0)}
+    </div>
+  );
+}
 
 export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSelectNode }: Props) {
   const [tab, setTab] = useState<Tab>("node");
@@ -212,34 +330,59 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     };
   }, [viewer]);
 
-  const [attractor, setAttractor] = useState<AttractorSettings>({
-    enabled: false,
-    mode: "attract",
-    strength: 1.6,
-    radius: 4,
-    point: [0, 3, 0],
-  });
-  const [pickMode, setPickMode] = useState(false);
+  const [attractorEnabled, setAttractorEnabled] = useState(false);
+  const [attractors, setAttractors] = useState<AttractorItem[]>([]);
+  const [pickId, setPickId] = useState<string | null>(null);
 
   useEffect(() => {
-    viewer?.setAttractor(attractor);
-  }, [viewer, attractor]);
+    viewer?.setAttractors(attractors, attractorEnabled);
+  }, [viewer, attractors, attractorEnabled]);
 
   useEffect(() => {
-    viewer?.setAttractorPickMode(pickMode);
-  }, [viewer, pickMode]);
+    viewer?.setAttractorPickMode(pickId !== null, pickId);
+  }, [viewer, pickId]);
 
   useEffect(() => {
     if (!viewer) return;
-    const handler = (point: [number, number, number]) => {
-      setAttractor((current) => ({ ...current, enabled: true, point }));
-      setPickMode(false);
+    const handler = (id: string, point: [number, number, number]) => {
+      setAttractors((current) =>
+        current.map((item) => (item.id === id ? { ...item, point, enabled: true } : item)),
+      );
+      setPickId(null);
     };
-    viewer.onAttractorPoint = handler;
+    viewer.onAttractorPicked = handler;
     return () => {
-      if (viewer.onAttractorPoint === handler) viewer.onAttractorPoint = null;
+      if (viewer.onAttractorPicked === handler) viewer.onAttractorPicked = null;
     };
   }, [viewer]);
+
+  const addAttractor = () => {
+    attractorSeq += 1;
+    const index = attractors.length + 1;
+    setAttractors((current) => [
+      ...current,
+      {
+        id: `attractor-${attractorSeq}`,
+        mode: "attract",
+        strength: 1.6,
+        radius: 4,
+        point: [0, 3, index * 0.5],
+        enabled: true,
+      },
+    ]);
+    setAttractorEnabled(true);
+  };
+
+  const patchAttractor = (id: string, patch: Partial<AttractorItem>) => {
+    setAttractors((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const removeAttractor = (id: string) => {
+    setAttractors((current) => current.filter((item) => item.id !== id));
+    if (pickId === id) setPickId(null);
+  };
 
   const [fracture, setFracture] = useState<FractureSettings>({
     enabled: false,
@@ -333,23 +476,12 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
               <p className="studio-hint">
                 在画面中点击任意网格即可选中；选中后直接调整材质，所见即所得。
               </p>
-              <div className="studio-node-list" onMouseLeave={() => viewer?.hoverNode(null)}>
-                {nodes.length === 0 && <p className="studio-hint">加载模型后可在此选择节点。</p>}
-                {nodes.map((node) => (
-                  <button
-                    key={node.id}
-                    type="button"
-                    className={`studio-node ${selectedNode?.id === node.id ? "active" : ""}`}
-                    onMouseEnter={() => viewer?.hoverNode(node.id)}
-                    onFocus={() => viewer?.hoverNode(node.id)}
-                    onBlur={() => viewer?.hoverNode(null)}
-                    onClick={() => onSelectNode(node.id)}
-                  >
-                    <span>{node.name}</span>
-                    <em>{node.triangles.toLocaleString()} 面</em>
-                  </button>
-                ))}
-              </div>
+              <NodeTree
+                nodes={nodes}
+                selectedId={selectedNode?.id ?? null}
+                onSelect={onSelectNode}
+                onHover={(id) => viewer?.hoverNode(id)}
+              />
               {selectedNode && (
                 <div className="studio-meta">
                   <span>{selectedNode.material}</span>
@@ -682,72 +814,100 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
 
             <section className="studio-section">
               <h4>吸引子 / 排斥子</h4>
-              <Toggle
-                label="启用量场形变"
-                checked={attractor.enabled}
-                onChange={(enabled) => setAttractor((current) => ({ ...current, enabled }))}
-              />
-              <div className="studio-seg">
-                <button
-                  type="button"
-                  className={attractor.mode === "attract" ? "active" : ""}
-                  onClick={() =>
-                    setAttractor((current) => ({ ...current, mode: "attract", enabled: true }))
-                  }
-                >
-                  塌陷（吸引）
-                </button>
-                <button
-                  type="button"
-                  className={attractor.mode === "repel" ? "active" : ""}
-                  onClick={() =>
-                    setAttractor((current) => ({ ...current, mode: "repel", enabled: true }))
-                  }
-                >
-                  膨胀（排斥）
+              <div className="studio-row">
+                <Toggle
+                  label="启用量场形变"
+                  checked={attractorEnabled}
+                  onChange={setAttractorEnabled}
+                />
+                <button type="button" className="studio-btn" onClick={addAttractor}>
+                  + 新增
                 </button>
               </div>
-              <Slider
-                label="强度"
-                value={attractor.strength}
-                min={0}
-                max={5}
-                step={0.05}
-                onChange={(value) => setAttractor((current) => ({ ...current, strength: value }))}
-              />
-              <Slider
-                label="影响半径"
-                value={attractor.radius}
-                min={0.5}
-                max={12}
-                step={0.1}
-                unit=" m"
-                onChange={(value) => setAttractor((current) => ({ ...current, radius: value }))}
-              />
-              <button
-                type="button"
-                className={`studio-btn wide ${pickMode ? "active" : ""}`}
-                onClick={() => setPickMode((value) => !value)}
-              >
-                {pickMode ? "请在画面中点击模型取点…" : "在模型上拾取作用点"}
-              </button>
-              {(["x", "y", "z"] as const).map((axis, index) => (
-                <Slider
-                  key={axis}
-                  label={`作用点 ${axis.toUpperCase()}`}
-                  value={attractor.point[index]}
-                  min={-12}
-                  max={16}
-                  step={0.1}
-                  unit=" m"
-                  onChange={(value) =>
-                    setAttractor((current) => {
-                      const point = [...current.point] as [number, number, number];
-                      point[index] = value;
-                      return { ...current, point };
-                    })
-                  }
-                />
+              {attractors.length === 0 && (
+                <p className="studio-hint">暂无作用点；新增后可分别调整类型、强度、半径与作用点。</p>
+              )}
+              {attractors.map((item, index) => (
+                <div
+                  key={item.id}
+                  className={`studio-attractor ${pickId === item.id ? "active" : ""}`}
+                >
+                  <div className="studio-attractor-head">
+                    <strong>
+                      {item.mode === "attract" ? "吸引子" : "排斥子"} {index + 1}
+                    </strong>
+                    <button
+                      type="button"
+                      className="studio-btn danger small"
+                      onClick={() => removeAttractor(item.id)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                  <div className="studio-seg">
+                    <button
+                      type="button"
+                      className={item.mode === "attract" ? "active" : ""}
+                      onClick={() => patchAttractor(item.id, { mode: "attract", enabled: true })}
+                    >
+                      塌陷（吸引）
+                    </button>
+                    <button
+                      type="button"
+                      className={item.mode === "repel" ? "active" : ""}
+                      onClick={() => patchAttractor(item.id, { mode: "repel", enabled: true })}
+                    >
+                      膨胀（排斥）
+                    </button>
+                  </div>
+                  <Slider
+                    label="强度"
+                    value={item.strength}
+                    min={0}
+                    max={5}
+                    step={0.05}
+                    onChange={(value) => patchAttractor(item.id, { strength: value })}
+                  />
+                  <Slider
+                    label="影响半径"
+                    value={item.radius}
+                    min={0.5}
+                    max={12}
+                    step={0.1}
+                    unit=" m"
+                    onChange={(value) => patchAttractor(item.id, { radius: value })}
+                  />
+                  <div className="studio-row">
+                    <button
+                      type="button"
+                      className={`studio-btn ${pickId === item.id ? "active" : ""}`}
+                      onClick={() => setPickId(pickId === item.id ? null : item.id)}
+                    >
+                      {pickId === item.id ? "点击画面取点…" : "拾取作用点"}
+                    </button>
+                    <Toggle
+                      label="启用"
+                      checked={item.enabled}
+                      onChange={(enabled) => patchAttractor(item.id, { enabled })}
+                    />
+                  </div>
+                  {(["x", "y", "z"] as const).map((axis, axisIndex) => (
+                    <Slider
+                      key={axis}
+                      label={`作用点 ${axis.toUpperCase()}`}
+                      value={item.point[axisIndex]}
+                      min={-12}
+                      max={16}
+                      step={0.1}
+                      unit=" m"
+                      onChange={(value) => {
+                        const point = [...item.point] as [number, number, number];
+                        point[axisIndex] = value;
+                        patchAttractor(item.id, { point });
+                      }}
+                    />
+                  ))}
+                </div>
               ))}
             </section>
 
@@ -805,6 +965,32 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
 
         {tab === "build" && (
           <>
+            <section className="studio-section">
+              <h4>选取模块</h4>
+              <div className="studio-presets">
+                {BLOCK_PRESETS.map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    className="studio-preset"
+                    onClick={() => {
+                      viewer?.addBlock({
+                        name: preset.name,
+                        size: preset.size,
+                        color: preset.color,
+                      });
+                      setBuildMode(true);
+                    }}
+                  >
+                    <i style={{ background: preset.color }} />
+                    <span>{preset.name}</span>
+                    <em>{preset.size.map((value) => value.toFixed(1)).join(" × ")}</em>
+                  </button>
+                ))}
+              </div>
+              <p className="studio-hint">点击预设即可添加模块，添加后可继续调整尺寸与位置。</p>
+            </section>
+
             <section className="studio-section">
               <h4>灵活搭建</h4>
               <Toggle
@@ -888,6 +1074,28 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                     onChange={(event) => updateBlock({ color: event.target.value })}
                   />
                 </label>
+                <div className="studio-expand">
+                  <span>智能扩展</span>
+                  <div className="studio-row">
+                    {(["x", "y", "z"] as const).map((axis) => (
+                      <button
+                        key={axis}
+                        type="button"
+                        className="studio-btn"
+                        disabled={!selectedBlock}
+                        onClick={() => {
+                          if (!selectedBlock) return;
+                          viewer?.smartExpand(selectedBlock.id, axis);
+                        }}
+                      >
+                        +{axis.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="studio-hint">
+                    沿轴向外延伸：有缝隙时自动补缝拼接，已贴合时追加同尺寸模块。
+                  </p>
+                </div>
                 <div className="studio-row">
                   <button
                     type="button"

@@ -76,6 +76,7 @@ def build_gable_roof(
         _gable_face(
             builder, x_left, x_right, cx, z, z_top, rise, y1, gable_slot, rnd, gable_ruin, flip=True
         )
+        _eave_band(builder, x_left, x_right, overhang, z, z_top, y0, y1, gable_slot)
         return builder
 
     # 六个顶点：左右檐口 + 屋脊，前后各一组
@@ -96,7 +97,31 @@ def build_gable_roof(
     )
     # 底面
     builder.add_face([a, d, e, b], "trim")
+    # 檐口封边：两侧外墙上沿补一圈墙带，墙顶与屋面之间不再留缝
+    _eave_band(builder, x_left, x_right, overhang, z, z_top, y0, y1, gable_slot)
     return builder
+
+
+def _eave_band(
+    builder: MeshBuilder,
+    x_left: float,
+    x_right: float,
+    overhang: float,
+    z: float,
+    z_top: float,
+    y0: float,
+    y1: float,
+    slot: str,
+) -> None:
+    """在两侧外墙线上补一条从墙顶到屋面底面的墙带，封住檐口缝隙。"""
+    if z_top <= z + 1e-4:
+        return
+    for x in (x_left + overhang, x_right - overhang):
+        builder.add_box(
+            (x - 0.08, y0, z),
+            (x + 0.08, y1, z_top),
+            slot,
+        )
 
 
 def _gable_face(
@@ -118,7 +143,14 @@ def _gable_face(
     flip 用于后侧山墙：两面朝向相反，否则后山墙的法线会指向室内。
     """
     if ruin <= 0.0:
-        points = [(x_left, y, z), (x_right, y, z), (cx, y, z_eave + rise)]
+        # 五边形：底部墙带到墙顶，斜边与屋面坡度完全一致
+        points = [
+            (x_left, y, z),
+            (x_right, y, z),
+            (x_right, y, z_eave),
+            (cx, y, z_eave + rise),
+            (x_left, y, z_eave),
+        ]
         builder.add_face(list(reversed(points)) if flip else points, slot)
         return
 
