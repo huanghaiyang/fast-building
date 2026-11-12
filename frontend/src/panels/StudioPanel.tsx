@@ -17,6 +17,7 @@ import {
   NodeMaterialState,
   RoughnessSettings,
   SunSettings,
+  SurfaceSettings,
   VolumetricSettings,
 } from "../viewer/BuildingViewer";
 
@@ -90,6 +91,10 @@ const DEFAULT_MATERIAL: NodeMaterialState = {
   metalness: 0.05,
   emissive: "#000000",
   emissiveIntensity: 0,
+  normalScale: 1,
+  envMapIntensity: 1,
+  opacity: 1,
+  transparent: false,
 };
 
 export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSelectNode }: Props) {
@@ -128,10 +133,20 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     viewer?.setGrunge(grunge);
   }, [viewer, grunge]);
 
-  const [rain, setRain] = useState({ intensity: 0, wetness: 0.35 });
+  const [surface, setSurface] = useState<SurfaceSettings>({
+    subsurface: 0.35,
+    subsurfaceColor: "#c96a3f",
+    diffuseWrap: 0.4,
+  });
+  useEffect(() => {
+    viewer?.setSurface(surface);
+  }, [viewer, surface]);
+
+  const [rain, setRain] = useState({ intensity: 0, wetness: 0.35, flow: 0.6 });
   useEffect(() => {
     viewer?.setRain(rain.intensity);
     viewer?.setWetness(rain.wetness);
+    viewer?.setWetFlow(rain.flow);
   }, [viewer, rain]);
 
   const [volumetric, setVolumetric] = useState<VolumetricSettings>({
@@ -230,6 +245,8 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     enabled: false,
     amount: 0.6,
     cell: 0.42,
+    collapse: false,
+    impulse: 1.2,
   });
   useEffect(() => {
     viewer?.setFracture(fracture);
@@ -316,18 +333,23 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
               <p className="studio-hint">
                 在画面中点击任意网格即可选中；选中后直接调整材质，所见即所得。
               </p>
-              <select
-                className="studio-select"
-                value={selectedNode?.id ?? ""}
-                onChange={(event) => onSelectNode(event.target.value || null)}
-              >
-                <option value="">未选中节点（{nodes.length} 个）</option>
+              <div className="studio-node-list" onMouseLeave={() => viewer?.hoverNode(null)}>
+                {nodes.length === 0 && <p className="studio-hint">加载模型后可在此选择节点。</p>}
                 {nodes.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.name} · {node.triangles.toLocaleString()} 面
-                  </option>
+                  <button
+                    key={node.id}
+                    type="button"
+                    className={`studio-node ${selectedNode?.id === node.id ? "active" : ""}`}
+                    onMouseEnter={() => viewer?.hoverNode(node.id)}
+                    onFocus={() => viewer?.hoverNode(node.id)}
+                    onBlur={() => viewer?.hoverNode(null)}
+                    onClick={() => onSelectNode(node.id)}
+                  >
+                    <span>{node.name}</span>
+                    <em>{node.triangles.toLocaleString()} 面</em>
+                  </button>
                 ))}
-              </select>
+              </div>
               {selectedNode && (
                 <div className="studio-meta">
                   <span>{selectedNode.material}</span>
@@ -364,6 +386,35 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                   step={0.01}
                   onChange={(value) => patchMaterial({ metalness: value })}
                 />
+                <Slider
+                  label="法线强度"
+                  value={material.normalScale}
+                  min={0}
+                  max={2}
+                  step={0.02}
+                  onChange={(value) => patchMaterial({ normalScale: value })}
+                />
+                <Slider
+                  label="环境反射（IBL）"
+                  value={material.envMapIntensity}
+                  min={0}
+                  max={3}
+                  step={0.05}
+                  onChange={(value) => patchMaterial({ envMapIntensity: value })}
+                />
+                <Slider
+                  label="不透明度"
+                  value={material.opacity}
+                  min={0.05}
+                  max={1}
+                  step={0.01}
+                  onChange={(value) => patchMaterial({ opacity: value, transparent: value < 1 })}
+                />
+                <Toggle
+                  label="启用透明混合"
+                  checked={material.transparent}
+                  onChange={(transparent) => patchMaterial({ transparent })}
+                />
                 <SanitizedColor
                   label="自发光"
                   value={material.emissive}
@@ -391,6 +442,39 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                   恢复该节点原始材质
                 </button>
               </div>
+            </section>
+
+            <section className="studio-section">
+              <h4>表面散射</h4>
+              <Slider
+                label="次表面散射"
+                value={surface.subsurface}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => setSurface((current) => ({ ...current, subsurface: value }))}
+              />
+              <Slider
+                label="漫反射包裹"
+                value={surface.diffuseWrap}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => setSurface((current) => ({ ...current, diffuseWrap: value }))}
+              />
+              <label className="studio-field">
+                <span>散射颜色</span>
+                <input
+                  type="color"
+                  value={surface.subsurfaceColor}
+                  onChange={(event) =>
+                    setSurface((current) => ({ ...current, subsurfaceColor: event.target.value }))
+                  }
+                />
+              </label>
+              <p className="studio-hint">
+                次表面散射让背光面透出石材/木材的内层颜色，漫反射包裹柔化明暗交界；作用于全部节点。
+              </p>
             </section>
 
             <section className="studio-section">
@@ -528,14 +612,24 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                 onChange={(value) => setRain((current) => ({ ...current, intensity: value }))}
               />
               <Slider
-                label="地面湿度"
+                label="表面湿度"
                 value={rain.wetness}
                 min={0}
                 max={1}
                 step={0.01}
                 onChange={(value) => setRain((current) => ({ ...current, wetness: value }))}
               />
-              <p className="studio-hint">雨量同时加深雾气；湿度让地面变暗、出现湿润反射。</p>
+              <Slider
+                label="雨水流动"
+                value={rain.flow}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => setRain((current) => ({ ...current, flow: value }))}
+              />
+              <p className="studio-hint">
+                湿度让墙面与地面变暗、粗糙度下降；雨水流动沿重力方向产生动态水痕高光。
+              </p>
             </section>
 
             <section className="studio-section">
@@ -681,7 +775,30 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                 unit=" m"
                 onChange={(value) => setFracture((current) => ({ ...current, cell: value }))}
               />
-              <p className="studio-hint">体素为实时重采样，仅用于预览碎裂形态，不写回模型。</p>
+              <Toggle
+                label="物理崩塌"
+                checked={fracture.collapse}
+                onChange={(collapse) => setFracture((current) => ({ ...current, collapse }))}
+              />
+              <Slider
+                label="崩塌冲击"
+                value={fracture.impulse}
+                min={0.1}
+                max={4}
+                step={0.05}
+                onChange={(value) => setFracture((current) => ({ ...current, impulse: value }))}
+              />
+              <button
+                type="button"
+                className="studio-btn wide"
+                onClick={() => viewer?.triggerCollapse()}
+                disabled={!fracture.enabled || !fracture.collapse}
+              >
+                重新崩塌
+              </button>
+              <p className="studio-hint">
+                体素保留原模型贴图与 PBR 材质；开启物理崩塌后按重力落地、摩擦停稳。
+              </p>
             </section>
           </>
         )}
@@ -695,6 +812,9 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
                 checked={buildMode}
                 onChange={setBuildMode}
               />
+              <p className="studio-hint">
+                舞台交互：点击选中 · 拖动平移（按住 Shift 升降）· Alt + 点击地面新增 · Delete 删除。
+              </p>
               <button
                 type="button"
                 className="studio-btn wide"

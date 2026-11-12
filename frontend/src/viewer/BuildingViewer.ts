@@ -12,11 +12,12 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 
 import { RainSystem, VolumetricLight, VoxelFracture } from "./effects";
 import {
-  GrungeUniforms,
-  createGrungeUniforms,
+  MaterialFXUniforms,
+  SurfaceSettings,
+  createMaterialFXUniforms,
   getGrungeTexture,
   getRoughnessTexture,
-  patchGrunge,
+  patchMaterialFX,
 } from "./procedural";
 import { subdivideGeometry } from "./subdivide";
 
@@ -65,12 +66,20 @@ export interface NodeInfo {
   triangles: number;
 }
 
+export type { SurfaceSettings } from "./procedural";
+
 export interface NodeMaterialState {
   color: string;
   roughness: number;
   metalness: number;
   emissive: string;
   emissiveIntensity: number;
+  /** 法线贴图强度。 */
+  normalScale: number;
+  /** IBL 环境反射强度。 */
+  envMapIntensity: number;
+  opacity: number;
+  transparent: boolean;
 }
 
 export type ClipAxis = "x" | "y" | "z";
@@ -96,6 +105,10 @@ export interface FractureSettings {
   enabled: boolean;
   amount: number;
   cell: number;
+  /** 是否切换为物理崩塌模拟。 */
+  collapse: boolean;
+  /** 崩塌初始冲击强度。 */
+  impulse: number;
 }
 
 export interface VolumetricSettings {
@@ -281,6 +294,8 @@ export class BuildingViewer {
   private readonly raycaster = new THREE.Raycaster();
   private readonly nodes = new Map<string, THREE.Mesh>();
   private selectionHelper: THREE.BoxHelper | null = null;
+  private hoverHelper: THREE.BoxHelper | null = null;
+  private hoveredNodeId: string | null = null;
 
   private modelBox = new THREE.Box3(new THREE.Vector3(-6, 0, -6), new THREE.Vector3(6, 6, 6));
   private readonly clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
@@ -288,10 +303,15 @@ export class BuildingViewer {
   private clipHelper!: THREE.PlaneHelper;
   private clipDragEnabled = false;
   private clipDragging = false;
-  private clipLastY = 0;
+  private clipDragStartX = 0;
+  private clipDragStartY = 0;
+  private clipDragStartPosition = 0;
+  private clipDragDirX = 0;
+  private clipDragDirY = -1;
+  private clipDragPixelsPerUnit = 200;
   private clipApplied = false;
 
-  private readonly grungeUniforms: GrungeUniforms = createGrungeUniforms();
+  private readonly fxUniforms: MaterialFXUniforms = createMaterialFXUniforms();
   private grungeSettings: GrungeSettings = {
     enabled: false,
     strength: 0.55,
@@ -299,7 +319,13 @@ export class BuildingViewer {
     color: "#2f2a24",
     roughness: 0.45,
   };
+  private surfaceSettings: SurfaceSettings = {
+    subsurface: 0.35,
+    subsurfaceColor: "#c96a3f",
+    diffuseWrap: 0.4,
+  };
   private roughnessSettings: RoughnessSettings = { enabled: false, scale: 6, strength: 0.6 };
+  private wetFlow = 0.6;
 
   private readonly rain = new RainSystem();
   private readonly rainCenter = new THREE.Vector3(0, 0, 0);
@@ -325,7 +351,13 @@ export class BuildingViewer {
   >();
 
   private readonly voxel = new VoxelFracture();
-  private fractureSettings: FractureSettings = { enabled: false, amount: 0, cell: 0.42 };
+  private fractureSettings: FractureSettings = {
+    enabled: false,
+    amount: 0.6,
+    cell: 0.42,
+    collapse: false,
+    impulse: 1.2,
+  };
   private fractureCell = 0;
 
   private readonly volumetric = new VolumetricLight();
@@ -351,6 +383,14 @@ export class BuildingViewer {
   private blockSeq = 0;
   private buildMode = false;
   private selectedBlockId: string | null = null;
+  private blockDragging = false;
+  private blockDragId: string | null = null;
+  private blockDragPlaneY = 0;
+  private blockDragStartY = 0;
+  private blockDragPointerY = 0;
+  private readonly blockDragOrigin = new THREE.Vector3();
+  private readonly blockDragOffset = new THREE.Vector3();
+  private readonly buildPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   private pointerState = { x: 0, y: 0, active: false, moved: false };
   private viewLocked = false;
@@ -413,6 +453,7 @@ export class BuildingViewer {
     this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
     window.addEventListener("pointermove", this.handlePointerMove);
     window.addEventListener("pointerup", this.handlePointerUp);
+    window.addEventListener("keydown", this.handleGlobalKeyDown);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -545,6 +586,7 @@ export class BuildingViewer {
     // 环境预设给出太阳的初始方位与高度，之后可在面板里手动细调
     this.sunSettings = this.sunFromVector(config.key.position);
     this.key.position.copy(this.sunDirection()).multiplyScalar(SUN_DISTANCE);
+    this.fxUniforms.uSunDir.value.copy(this.sunDir);
 
     this.fill.color.set(config.fill.color);
     this.fill.intensity = config.fill.intensity;
@@ -590,6 +632,7 @@ export class BuildingViewer {
     }
     this.sunSettings = { azimuth, elevation };
     this.key.position.copy(this.sunDirection()).multiplyScalar(SUN_DISTANCE);
+    this.fxUniforms.uSunDir.value.copy(this.sunDir);
     this.updateVolumetricAnchor();
     this.scheduleSkyRebuild();
     this.onSunChange?.(this.getSun());
@@ -642,8 +685,10 @@ export class BuildingViewer {
     if (this.disposed) return;
     this.animationId = requestAnimationFrame(this.animate);
     const delta = this.clock.getDelta();
+    this.fxUniforms.uTime.value += delta;
     this.rain.update(delta);
     this.volumetric.update(delta, this.camera);
+    this.voxel.update(delta);
     this.updateFirstPerson(delta);
     if (!this.firstPerson) this.controls.update();
     this.renderer.render(this.scene, this.camera);
@@ -683,6 +728,10 @@ export class BuildingViewer {
                 metalness: standard.metalness,
                 emissive: `#${standard.emissive.getHexString()}`,
                 emissiveIntensity: standard.emissiveIntensity,
+                normalScale: standard.normalScale?.x ?? 1,
+                envMapIntensity: standard.envMapIntensity ?? 1,
+                opacity: standard.opacity,
+                transparent: standard.transparent,
               };
             });
 
@@ -788,6 +837,7 @@ export class BuildingViewer {
 
   private clearModel(): void {
     this.selectNode(null);
+    this.hoverNode(null);
     this.nodes.clear();
     this.voxel.clear();
     this.fractureCell = 0;
@@ -993,10 +1043,14 @@ export class BuildingViewer {
       metalness: material.metalness,
       emissive: `#${material.emissive.getHexString()}`,
       emissiveIntensity: material.emissiveIntensity,
+      normalScale: material.normalScale?.x ?? 1,
+      envMapIntensity: material.envMapIntensity ?? 1,
+      opacity: material.opacity,
+      transparent: material.transparent,
     };
   }
 
-  /** 单节点材质：实时改写颜色 / 粗糙度 / 金属度 / 自发光。 */
+  /** 单节点材质：实时改写 PBR 参数（颜色 / 粗糙度 / 金属度 / 法线 / IBL / 透明度）。 */
   setNodeMaterial(id: string, patch: Partial<NodeMaterialState>): void {
     const mesh = this.nodes.get(id);
     if (!mesh) return;
@@ -1007,6 +1061,22 @@ export class BuildingViewer {
       if (patch.emissive !== undefined) material.emissive.set(patch.emissive);
       if (patch.emissiveIntensity !== undefined) {
         material.emissiveIntensity = patch.emissiveIntensity;
+      }
+      if (patch.normalScale !== undefined && material.normalScale) {
+        material.normalScale.set(patch.normalScale, patch.normalScale);
+      }
+      if (patch.envMapIntensity !== undefined) {
+        material.envMapIntensity = patch.envMapIntensity;
+      }
+      let recompile = false;
+      if (patch.opacity !== undefined) material.opacity = patch.opacity;
+      if (patch.transparent !== undefined && material.transparent !== patch.transparent) {
+        material.transparent = patch.transparent;
+        recompile = true;
+      }
+      if (recompile) {
+        material.depthWrite = !material.transparent;
+        material.needsUpdate = true;
       }
     }
   }
@@ -1023,7 +1093,34 @@ export class BuildingViewer {
       material.metalness = state.metalness;
       material.emissive.set(state.emissive);
       material.emissiveIntensity = state.emissiveIntensity;
+      if (material.normalScale) material.normalScale.set(state.normalScale, state.normalScale);
+      material.envMapIntensity = state.envMapIntensity;
+      material.opacity = state.opacity;
+      material.transparent = state.transparent;
+      material.depthWrite = !state.transparent;
+      material.needsUpdate = true;
     });
+  }
+
+  /** 节点列表悬停高亮：只绘制包围盒，不修改材质本身。 */
+  hoverNode(id: string | null): void {
+    if (id === this.hoveredNodeId) return;
+    this.hoveredNodeId = id;
+    if (this.hoverHelper) {
+      this.scene.remove(this.hoverHelper);
+      this.hoverHelper.geometry.dispose();
+      (this.hoverHelper.material as THREE.Material).dispose();
+      this.hoverHelper = null;
+    }
+    const mesh = id ? (this.nodes.get(id) ?? null) : null;
+    if (!mesh || this.fractureSettings.enabled) return;
+    const helper = new THREE.BoxHelper(mesh, 0x58e0c4);
+    helper.material.depthTest = false;
+    helper.material.transparent = true;
+    helper.material.opacity = 0.95;
+    helper.renderOrder = 5;
+    this.scene.add(helper);
+    this.hoverHelper = helper;
   }
 
   // ================================================================ PBR 污渍
@@ -1034,16 +1131,30 @@ export class BuildingViewer {
 
   private applyGrunge(): void {
     const settings = this.grungeSettings;
-    this.grungeUniforms.uGrungeMap.value = getGrungeTexture();
-    this.grungeUniforms.uGrungeStrength.value = settings.enabled ? settings.strength : 0;
-    this.grungeUniforms.uGrungeScale.value = Math.max(0.2, settings.scale);
-    this.grungeUniforms.uStainColor.value.set(settings.color);
-    this.grungeUniforms.uGrungeRough.value = settings.roughness;
+    this.fxUniforms.uGrungeMap.value = getGrungeTexture();
+    this.fxUniforms.uGrungeStrength.value = settings.enabled ? settings.strength : 0;
+    this.fxUniforms.uGrungeScale.value = Math.max(0.2, settings.scale);
+    this.fxUniforms.uStainColor.value.set(settings.color);
+    this.fxUniforms.uGrungeRough.value = settings.roughness;
+    this.patchAllMaterials();
+  }
+
+  private patchAllMaterials(): void {
     for (const mesh of this.nodes.values()) {
       for (const material of this.standardMaterials(mesh)) {
-        patchGrunge(material, this.grungeUniforms);
+        patchMaterialFX(material, this.fxUniforms);
       }
     }
+  }
+
+  // ================================================================ 表面散射
+  /** 漫反射包裹与次表面散射：全局作用于所有节点材质。 */
+  setSurface(patch: Partial<SurfaceSettings>): void {
+    this.surfaceSettings = { ...this.surfaceSettings, ...patch };
+    this.fxUniforms.uSSS.value = this.surfaceSettings.subsurface;
+    this.fxUniforms.uSSSColor.value.set(this.surfaceSettings.subsurfaceColor);
+    this.fxUniforms.uDiffuseWrap.value = this.surfaceSettings.diffuseWrap;
+    this.patchAllMaterials();
   }
 
   // ================================================================ 粗糙度贴图
@@ -1085,7 +1196,17 @@ export class BuildingViewer {
     this.applyWetness();
   }
 
+  /** 雨水流动强度：控制墙面流动水痕的可见度。 */
+  setWetFlow(value: number): void {
+    this.wetFlow = Math.max(0, Math.min(1, value));
+    this.fxUniforms.uRainFlow.value = this.wetFlow;
+    this.patchAllMaterials();
+  }
+
   private applyWetness(): void {
+    this.fxUniforms.uWetness.value = this.wetness;
+    this.fxUniforms.uRainFlow.value = this.wetFlow;
+    this.patchAllMaterials();
     this.groundMaterial.color.copy(this.baseGroundColor).multiplyScalar(1 - this.wetness * 0.32);
     this.groundMaterial.roughness = Math.max(0.08, this.baseGroundRoughness - this.wetness * 0.55);
     this.groundMaterial.metalness = this.wetness * 0.22;
@@ -1181,7 +1302,36 @@ export class BuildingViewer {
     this.clipDragEnabled = enabled;
     this.controls.enableRotate = !enabled && !this.viewLocked;
     this.controls.enablePan = !enabled && !this.viewLocked;
-    this.renderer.domElement.style.cursor = enabled ? "ns-resize" : "";
+    this.renderer.domElement.style.cursor = enabled ? "move" : this.buildMode ? "grab" : "";
+  }
+
+  /**
+   * 计算当前剖切轴在屏幕上的投影方向与像素/米比例。
+   * 鼠标位移投影到该方向后，拖动方向与剖切面推进方向始终一致，
+   * 避免 X/Z 轴因相机朝向出现的反向问题。
+   */
+  private updateClipDragFrame(): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const axis = this.clipSettings.axis;
+    const origin = this.modelBox.getCenter(new THREE.Vector3());
+    origin[axis] = this.clipSettings.position;
+    const probe = origin.clone();
+    probe[axis] += 1;
+    const start = origin.clone().project(this.camera);
+    const end = probe.clone().project(this.camera);
+    const dx = ((end.x - start.x) * rect.width) / 2;
+    const dy = (-(end.y - start.y) * rect.height) / 2;
+    const length = Math.hypot(dx, dy);
+    if (length < 4) {
+      // 剖切轴几乎正对相机，退化为上下拖动
+      this.clipDragDirX = 0;
+      this.clipDragDirY = -1;
+      this.clipDragPixelsPerUnit = Math.max(40, rect.height * 0.35);
+      return;
+    }
+    this.clipDragDirX = dx / length;
+    this.clipDragDirY = dy / length;
+    this.clipDragPixelsPerUnit = Math.max(length, rect.height * 0.12);
   }
 
   // ================================================================ 吸引子 / 排斥子
@@ -1253,11 +1403,12 @@ export class BuildingViewer {
   }
 
   private applyFracture(): void {
-    const { enabled, amount, cell } = this.fractureSettings;
+    const { enabled, amount, cell, collapse, impulse } = this.fractureSettings;
     for (const mesh of this.nodes.values()) {
       mesh.visible = !enabled;
     }
     if (this.selectionHelper) this.selectionHelper.visible = !enabled;
+    if (this.hoverHelper) this.hoverHelper.visible = !enabled;
     if (!this.model) {
       this.voxel.clear();
       return;
@@ -1272,12 +1423,20 @@ export class BuildingViewer {
       this.fractureCell = cell;
     }
     this.voxel.setAmount(amount);
+    this.voxel.setCollapse(collapse, impulse);
     this.voxel.setClippingPlanes(this.clipSettings.enabled ? [this.clipPlane] : null);
+  }
+
+  /** 重新触发一次物理崩塌。 */
+  triggerCollapse(): void {
+    if (!this.fractureSettings.enabled) return;
+    this.voxel.triggerCollapse();
   }
 
   // ================================================================ 灵活搭建
   setBuildMode(enabled: boolean): void {
     this.buildMode = enabled;
+    this.renderer.domElement.style.cursor = enabled ? "grab" : "";
     if (!enabled) this.selectBlock(null);
   }
 
@@ -1504,13 +1663,39 @@ export class BuildingViewer {
     this.fpKeys.delete(event.code);
   };
 
+  /** 搭建模式快捷删除；输入框内不拦截。 */
+  private handleGlobalKeyDown = (event: KeyboardEvent): void => {
+    if (!this.buildMode || !this.selectedBlockId) return;
+    const target = event.target as HTMLElement | null;
+    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      this.removeBlock(this.selectedBlockId);
+    }
+  };
+
   // ================================================================ 指针交互
   private handlePointerDown = (event: PointerEvent): void => {
     if (event.button !== 0 || this.firstPerson) return;
     this.pointerState = { x: event.clientX, y: event.clientY, active: true, moved: false };
+
+    if (this.buildMode) {
+      const hit = this.raycastBlock(event);
+      if (hit) {
+        const blockId = hit.object.userData.blockId as string;
+        this.selectBlock(blockId);
+        this.beginBlockDrag(blockId, event);
+        return;
+      }
+      if (!event.altKey) this.selectBlock(null);
+    }
+
     if (this.clipDragEnabled && this.clipSettings.enabled) {
       this.clipDragging = true;
-      this.clipLastY = event.clientY;
+      this.clipDragStartX = event.clientX;
+      this.clipDragStartY = event.clientY;
+      this.clipDragStartPosition = this.clipSettings.position;
+      this.updateClipDragFrame();
     }
   };
 
@@ -1523,33 +1708,119 @@ export class BuildingViewer {
     ) {
       this.pointerState.moved = true;
     }
+    if (this.blockDragging) {
+      this.dragBlock(event);
+      return;
+    }
     if (!this.clipDragging) return;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const dy = event.clientY - this.clipLastY;
-    this.clipLastY = event.clientY;
-    const [min, max] = this.getClipRange();
-    const extent = Math.max(max - min, 0.1);
-    const next = this.clipSettings.position - (dy / Math.max(rect.height, 1)) * extent * 1.4;
+    // 把鼠标位移投影到剖切轴在屏幕上的方向，保证拖动方向与剖切推进一致
+    const dx = event.clientX - this.clipDragStartX;
+    const dy = event.clientY - this.clipDragStartY;
+    const along = dx * this.clipDragDirX + dy * this.clipDragDirY;
+    const next = this.clipDragStartPosition + along / this.clipDragPixelsPerUnit;
     this.setClip({ position: next });
     this.onClipPosition?.(this.clipSettings.position);
   };
 
   private handlePointerUp = (event: PointerEvent): void => {
     if (!this.pointerState.active) return;
-    const clicked = event.button === 0 && !this.pointerState.moved && !this.clipDragging;
+    const clicked =
+      event.button === 0 && !this.pointerState.moved && !this.clipDragging && !this.blockDragging;
     this.pointerState.active = false;
+    if (this.blockDragging) this.endBlockDrag();
     this.clipDragging = false;
-    if (clicked) this.pick(event);
+    if (!clicked) return;
+    if (this.buildMode && event.altKey) this.addBlockAtPointer(event);
+    else this.pick(event);
   };
 
-  private pick(event: PointerEvent): void {
+  private setRayFromEvent(event: PointerEvent): boolean {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    if (!rect.width || !rect.height) return false;
     const ndc = new THREE.Vector2(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
+    return true;
+  }
+
+  private raycastBlock(event: PointerEvent): THREE.Intersection | null {
+    if (!this.setRayFromEvent(event)) return null;
+    return this.raycaster.intersectObjects(this.blocks, false)[0] ?? null;
+  }
+
+  /** 把屏幕坐标投到指定高度的水平面。 */
+  private rayPlanePoint(event: PointerEvent, y: number): THREE.Vector3 | null {
+    if (!this.setRayFromEvent(event)) return null;
+    this.buildPlane.constant = -y;
+    const point = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this.buildPlane, point) ? point : null;
+  }
+
+  private beginBlockDrag(blockId: string, event: PointerEvent): void {
+    const mesh = this.blocks.find((item) => item.userData.blockId === blockId);
+    if (!mesh) return;
+    this.blockDragging = true;
+    this.blockDragId = blockId;
+    this.blockDragPlaneY = mesh.position.y;
+    this.blockDragStartY = mesh.position.y;
+    this.blockDragPointerY = event.clientY;
+    this.blockDragOrigin.copy(mesh.position);
+    const point = this.rayPlanePoint(event, mesh.position.y);
+    if (point) {
+      this.blockDragOffset.set(mesh.position.x - point.x, 0, mesh.position.z - point.z);
+    } else {
+      this.blockDragOffset.set(0, 0, 0);
+    }
+    this.controls.enabled = false;
+    this.renderer.domElement.style.cursor = "grabbing";
+  }
+
+  private dragBlock(event: PointerEvent): void {
+    const mesh = this.blocks.find((item) => item.userData.blockId === this.blockDragId);
+    if (!mesh) return;
+    if (event.shiftKey) {
+      // Shift 拖动：沿竖直方向升降
+      const dy = event.clientY - this.blockDragPointerY;
+      const y = Math.max(mesh.scale.y / 2, this.blockDragStartY - dy * 0.025);
+      mesh.position.set(this.blockDragOrigin.x, y, this.blockDragOrigin.z);
+    } else {
+      const point = this.rayPlanePoint(event, this.blockDragPlaneY);
+      if (point) {
+        const snap = (value: number) => Math.round(value * 10) / 10;
+        mesh.position.set(
+          snap(point.x + this.blockDragOffset.x),
+          this.blockDragStartY,
+          snap(point.z + this.blockDragOffset.z),
+        );
+      }
+    }
+    mesh.updateMatrixWorld();
+    this.selectionHelper?.update();
+    this.onSelectedBlock?.(this.blockInfo(mesh));
+    this.notifyBlocks();
+  }
+
+  private endBlockDrag(): void {
+    this.blockDragging = false;
+    this.blockDragId = null;
+    this.controls.enabled = true;
+    this.controls.enableRotate = !this.viewLocked && !this.clipDragEnabled;
+    this.controls.enablePan = !this.viewLocked && !this.clipDragEnabled;
+    this.renderer.domElement.style.cursor = this.buildMode ? "grab" : "";
+  }
+
+  /** Alt + 点击地面：在落点新增模块。 */
+  private addBlockAtPointer(event: PointerEvent): void {
+    const point = this.rayPlanePoint(event, 0);
+    if (!point) return;
+    const snap = (value: number) => Math.round(value * 10) / 10;
+    this.addBlock({ position: [snap(point.x), 1.3, snap(point.z)] });
+  }
+
+  private pick(event: PointerEvent): void {
+    if (!this.setRayFromEvent(event)) return;
 
     if (this.buildMode) {
       const hits = this.raycaster.intersectObjects(this.blocks, false);
@@ -1596,6 +1867,7 @@ export class BuildingViewer {
     this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
     window.removeEventListener("pointermove", this.handlePointerMove);
     window.removeEventListener("pointerup", this.handlePointerUp);
+    window.removeEventListener("keydown", this.handleGlobalKeyDown);
     this.clearModel();
     this.rain.dispose();
     this.volumetric.dispose();

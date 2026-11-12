@@ -128,34 +128,62 @@ export function getRoughnessTexture(): THREE.CanvasTexture {
   return roughnessTexture;
 }
 
-export interface GrungeUniforms {
+export interface SurfaceSettings {
+  /** 次表面散射强度（0~1）。 */
+  subsurface: number;
+  /** 次表面散射透出的颜色。 */
+  subsurfaceColor: string;
+  /** 漫反射包裹系数，让背光面也有柔和过渡。 */
+  diffuseWrap: number;
+}
+
+export interface MaterialFXUniforms {
   uGrungeMap: { value: THREE.Texture | null };
   uGrungeStrength: { value: number };
   uGrungeScale: { value: number };
   uStainColor: { value: THREE.Color };
   uGrungeRough: { value: number };
+  uTime: { value: number };
+  uWetness: { value: number };
+  uRainFlow: { value: number };
+  uSSS: { value: number };
+  uSSSColor: { value: THREE.Color };
+  uDiffuseWrap: { value: number };
+  uSunDir: { value: THREE.Vector3 };
 }
 
-export function createGrungeUniforms(): GrungeUniforms {
+export function createMaterialFXUniforms(): MaterialFXUniforms {
   return {
     uGrungeMap: { value: null },
     uGrungeStrength: { value: 0 },
     uGrungeScale: { value: 3 },
     uStainColor: { value: new THREE.Color("#2f2a24") },
     uGrungeRough: { value: 0.45 },
+    uTime: { value: 0 },
+    uWetness: { value: 0 },
+    uRainFlow: { value: 0.6 },
+    uSSS: { value: 0.35 },
+    uSSSColor: { value: new THREE.Color("#c96a3f") },
+    uDiffuseWrap: { value: 0.4 },
+    uSunDir: { value: new THREE.Vector3(0.5, 0.7, 0.4).normalize() },
   };
 }
 
 /**
- * 给标准材质注入污渍着色。可重复调用，只打一次补丁。
- * 通过共享 uniforms 修改强度，不需要重新编译着色器。
+ * 给标准材质注入统一表面效果：
+ * - PBR 污渍蒙版；
+ * - 湿润变暗与粗糙度下降；
+ * - 沿重力方向流动的雨水条纹；
+ * - 漫反射包裹与次表面散射近似。
+ *
+ * 所有效果共享 uniforms，运行期调参不需要重编译着色器。
  */
-export function patchGrunge(
+export function patchMaterialFX(
   material: THREE.MeshStandardMaterial,
-  uniforms: GrungeUniforms,
+  uniforms: MaterialFXUniforms,
 ): void {
-  if (material.userData.fbGrungePatched) return;
-  material.userData.fbGrungePatched = true;
+  if (material.userData.fbMaterialFxPatched) return;
+  material.userData.fbMaterialFxPatched = true;
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uGrungeMap = uniforms.uGrungeMap;
@@ -163,13 +191,34 @@ export function patchGrunge(
     shader.uniforms.uGrungeScale = uniforms.uGrungeScale;
     shader.uniforms.uStainColor = uniforms.uStainColor;
     shader.uniforms.uGrungeRough = uniforms.uGrungeRough;
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.uniforms.uWetness = uniforms.uWetness;
+    shader.uniforms.uRainFlow = uniforms.uRainFlow;
+    shader.uniforms.uSSS = uniforms.uSSS;
+    shader.uniforms.uSSSColor = uniforms.uSSSColor;
+    shader.uniforms.uDiffuseWrap = uniforms.uDiffuseWrap;
+    shader.uniforms.uSunDir = uniforms.uSunDir;
 
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nuniform float uGrungeScale;\nvarying vec2 vFbGrungeUv;",
+        [
+          "#include <common>",
+          "uniform float uGrungeScale;",
+          "varying vec2 vFbGrungeUv;",
+          "varying vec3 vFbWorldPos;",
+          "varying vec3 vFbWorldNormal;",
+        ].join("\n"),
       )
-      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvFbGrungeUv = uv * uGrungeScale;");
+      .replace(
+        "#include <beginnormal_vertex>",
+        "#include <beginnormal_vertex>\nvFbWorldNormal = normalize( mat3( modelMatrix ) * objectNormal );",
+      )
+      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvFbGrungeUv = uv * uGrungeScale;")
+      .replace(
+        "#include <project_vertex>",
+        "#include <project_vertex>\nvFbWorldPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;",
+      );
 
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -180,7 +229,23 @@ export function patchGrunge(
           "uniform float uGrungeStrength;",
           "uniform float uGrungeRough;",
           "uniform vec3 uStainColor;",
+          "uniform float uTime;",
+          "uniform float uWetness;",
+          "uniform float uRainFlow;",
+          "uniform float uSSS;",
+          "uniform vec3 uSSSColor;",
+          "uniform float uDiffuseWrap;",
+          "uniform vec3 uSunDir;",
           "varying vec2 vFbGrungeUv;",
+          "varying vec3 vFbWorldPos;",
+          "varying vec3 vFbWorldNormal;",
+          "float fbHash( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }",
+          "float fbWaterStreak( vec3 p, float t ) {",
+          "  float column = floor( p.x * 5.0 ) + floor( p.z * 5.0 ) * 7.0;",
+          "  float phase = p.y * 1.9 - t * 1.15 + fbHash( vec2( column, 3.7 ) ) * 6.2831;",
+          "  float rivulet = sin( phase ) * 0.5 + 0.5;",
+          "  return smoothstep( 0.7, 0.97, rivulet ) * smoothstep( 0.0, 0.25, p.y );",
+          "}",
         ].join("\n"),
       )
       .replace(
@@ -189,6 +254,9 @@ export function patchGrunge(
           "#include <map_fragment>",
           "float fbStain = texture2D( uGrungeMap, vFbGrungeUv ).r;",
           "diffuseColor.rgb = mix( diffuseColor.rgb, uStainColor, clamp( fbStain * uGrungeStrength, 0.0, 1.0 ) );",
+          "float fbFlow = fbWaterStreak( vFbWorldPos, uTime );",
+          "diffuseColor.rgb *= mix( 1.0, 0.55, uWetness );",
+          "diffuseColor.rgb *= 1.0 - fbFlow * uRainFlow * 0.24;",
         ].join("\n"),
       )
       .replace(
@@ -196,9 +264,30 @@ export function patchGrunge(
         [
           "#include <roughnessmap_fragment>",
           "roughnessFactor = clamp( roughnessFactor + ( fbStain - 0.42 ) * uGrungeRough, 0.04, 1.0 );",
+          "roughnessFactor = mix( roughnessFactor, 0.045, uWetness * 0.85 );",
+          "roughnessFactor = clamp( roughnessFactor - fbFlow * uRainFlow * 0.3, 0.025, 1.0 );",
+        ].join("\n"),
+      )
+      .replace(
+        "#include <metalnessmap_fragment>",
+        [
+          "#include <metalnessmap_fragment>",
+          "metalnessFactor = mix( metalnessFactor, 0.18, uWetness * 0.5 );",
+        ].join("\n"),
+      )
+      .replace(
+        "#include <lights_fragment_end>",
+        [
+          "#include <lights_fragment_end>",
+          "vec3 fbSunView = normalize( ( viewMatrix * vec4( uSunDir, 0.0 ) ).xyz );",
+          "float fbNdotL = max( dot( normalize( normal ), fbSunView ), 0.0 );",
+          "float fbWrap = fbNdotL * 0.5 + 0.5;",
+          "float fbBack = pow( max( dot( -normalize( vViewPosition ), fbSunView ), 0.0 ), 2.5 );",
+          "reflectedLight.directDiffuse += diffuseColor.rgb * uDiffuseWrap * fbWrap * 0.08;",
+          "reflectedLight.directDiffuse += diffuseColor.rgb * uSSSColor * uSSS * ( fbWrap * 0.18 + fbBack * 0.8 );",
         ].join("\n"),
       );
   };
-  material.customProgramCacheKey = () => "fb-grunge";
+  material.customProgramCacheKey = () => "fb-material-fx";
   material.needsUpdate = true;
 }

@@ -6,6 +6,8 @@
 
 import * as THREE from "three";
 
+import { VoxelBody, VoxelPhysicsWorld, createVoxelBody } from "./physics";
+
 /** 雨幕：用线段模拟雨丝，数量与不透明度由雨量控制。 */
 export class RainSystem {
   readonly group = new THREE.Group();
@@ -107,58 +109,93 @@ export class RainSystem {
 }
 
 interface VoxelCell {
-  position: THREE.Vector3;
+  /** 体素在模型表面上的原始中心（未爆散）。 */
+  rest: THREE.Vector3;
   color: THREE.Color;
-  jitter: THREE.Vector3;
-  spin: THREE.Vector3;
-  scale: number;
+  /** 爆散方向与幅度。 */
+  spreadDir: THREE.Vector3;
+  spread: number;
+  spinAxis: THREE.Vector3;
+  spinSpeed: number;
+  size: number;
+  body: VoxelBody;
+}
+
+interface VoxelGroup {
+  mesh: THREE.InstancedMesh;
+  geometry: THREE.BoxGeometry;
+  material: THREE.MeshStandardMaterial;
+  cells: VoxelCell[];
 }
 
 /**
- * 体素碎裂：把模型三角面重采样成体素方块，按爆散量向外位移并旋转。
- * 属于近似体素化，只追求视觉密度与碎片感。
+ * 体素碎裂 / 物理崩塌。
+ *
+ * - 按材质分组生成 InstancedMesh，保留原有贴图与 PBR 属性；
+ * - 体素尺寸与采样栅格严格对齐，避免碎裂视图出现缝隙；
+ * - 开启崩塌后交给 VoxelPhysicsWorld 做重力、落地与休眠模拟。
  */
 export class VoxelFracture {
   readonly group = new THREE.Group();
-  private mesh: THREE.InstancedMesh | null = null;
-  private cells: VoxelCell[] = [];
-  private center = new THREE.Vector3();
+  private groups: VoxelGroup[] = [];
+  private readonly center = new THREE.Vector3();
+  private readonly world = new VoxelPhysicsWorld();
   private amount = 0;
-  private cellSize = 0.42;
   private dirty = true;
+  private collapseEnabled = false;
+  private collapseImpulse = 1.2;
+  private collapseWritten = false;
 
   constructor() {
     this.group.visible = false;
   }
 
-  build(model: THREE.Object3D, cellSize: number, maxVoxels = 9000): void {
+  build(model: THREE.Object3D, cellSize: number, maxVoxels = 32000): void {
     this.clear();
     const size = Math.max(0.08, cellSize);
-    this.cellSize = size;
     const seen = new Set<string>();
-    const cells: VoxelCell[] = [];
+    const buckets = new Map<
+      string,
+      { material: THREE.MeshStandardMaterial; cells: VoxelCell[] }
+    >();
     const a = new THREE.Vector3();
     const b = new THREE.Vector3();
     const c = new THREE.Vector3();
     const point = new THREE.Vector3();
     const fallback = new THREE.Color("#9c8f7a");
+    let total = 0;
 
     model.updateWorldMatrix(true, true);
     model.traverse((child) => {
+      if (total >= maxVoxels) return;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh || !mesh.geometry) return;
       const position = mesh.geometry.getAttribute("position");
       if (!position) return;
       const index = mesh.geometry.index;
       const triangleCount = index ? Math.floor(index.count / 3) : Math.floor(position.count / 3);
-      const stride = Math.max(1, Math.ceil(triangleCount / 5000));
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      const first = materials[0] as THREE.MeshStandardMaterial | undefined;
-      const color = first?.color ? first.color.clone() : fallback.clone();
-      if (color.r > 0.86 && color.g > 0.86 && color.b > 0.86) color.copy(fallback);
+      if (triangleCount < 1) return;
 
-      for (let t = 0; t < triangleCount; t += stride) {
-        if (cells.length >= maxVoxels) break;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const source = materials.find((material) =>
+        Boolean((material as THREE.MeshStandardMaterial)?.isMeshStandardMaterial),
+      ) as THREE.MeshStandardMaterial | undefined;
+      const key = source?.name || source?.uuid || "default";
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        const material = source
+          ? source.clone()
+          : new THREE.MeshStandardMaterial({ color: fallback.clone(), roughness: 0.86 });
+        material.wireframe = false;
+        // 体素使用 instanceColor 着色，关闭顶点色避免几何体缺少 color 属性时变黑
+        material.vertexColors = false;
+        bucket = { material, cells: [] };
+        buckets.set(key, bucket);
+      }
+      const color = source?.color ? source.color.clone() : fallback.clone();
+
+      for (let t = 0; t < triangleCount; t += 1) {
+        if (total >= maxVoxels) break;
         const i0 = index ? index.getX(t * 3) : t * 3;
         const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
         const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
@@ -166,7 +203,8 @@ export class VoxelFracture {
         b.fromBufferAttribute(position, i1).applyMatrix4(mesh.matrixWorld);
         c.fromBufferAttribute(position, i2).applyMatrix4(mesh.matrixWorld);
         const edge = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a));
-        const steps = Math.min(5, Math.max(1, Math.ceil(edge / size)));
+        // 采样步长小于体素边长；大三角面（整面墙）也能完整铺满，不漏格
+        const steps = Math.min(64, Math.max(1, Math.ceil(edge / (size * 0.7))));
 
         for (let i = 0; i <= steps; i += 1) {
           for (let j = 0; j <= steps - i; j += 1) {
@@ -178,118 +216,201 @@ export class VoxelFracture {
               a.y * w + b.y * u + c.y * v,
               a.z * w + b.z * u + c.z * v,
             );
-            const key = `${Math.round(point.x / size)}|${Math.round(point.y / size)}|${Math.round(
-              point.z / size,
-            )}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            cells.push({
-              position: new THREE.Vector3(
-                Math.round(point.x / size) * size,
-                Math.round(point.y / size) * size,
-                Math.round(point.z / size) * size,
-              ),
+            const gx = Math.round(point.x / size);
+            const gy = Math.round(point.y / size);
+            const gz = Math.round(point.z / size);
+            const cellKey = `${key}|${gx}|${gy}|${gz}`;
+            if (seen.has(cellKey)) continue;
+            seen.add(cellKey);
+
+            bucket.cells.push({
+              rest: new THREE.Vector3(gx * size, gy * size, gz * size),
               color: color.clone(),
-              jitter: new THREE.Vector3(
+              spreadDir: new THREE.Vector3(
                 Math.random() - 0.5,
                 Math.random() * 0.35,
                 Math.random() - 0.5,
               ).normalize(),
-              spin: new THREE.Vector3(
+              spread: 0.45 + Math.random() * 0.8,
+              spinAxis: new THREE.Vector3(
                 Math.random() - 0.5,
                 Math.random() - 0.5,
                 Math.random() - 0.5,
-              ).multiplyScalar(6),
-              scale: 0.72 + Math.random() * 0.4,
+              ).normalize(),
+              spinSpeed: 2 + Math.random() * 4,
+              size,
+              body: createVoxelBody(size * 0.5),
             });
-            if (cells.length >= maxVoxels) break;
+            total += 1;
+            if (total >= maxVoxels) break;
           }
-          if (cells.length >= maxVoxels) break;
+          if (total >= maxVoxels) break;
         }
       }
     });
 
-    if (!cells.length) return;
-    this.cells = cells;
+    if (!total) return;
+    this.world.clear();
     const box = new THREE.Box3();
-    for (const cell of cells) box.expandByPoint(cell.position);
-    box.getCenter(this.center);
-
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({
-      roughness: 0.82,
-      metalness: 0.02,
-    });
-    this.mesh = new THREE.InstancedMesh(geometry, material, cells.length);
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    for (let i = 0; i < cells.length; i += 1) {
-      this.mesh.setColorAt(i, cells[i].color);
+    for (const bucket of buckets.values()) {
+      if (!bucket.cells.length) {
+        bucket.material.dispose();
+        continue;
+      }
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const mesh = new THREE.InstancedMesh(geometry, bucket.material, bucket.cells.length);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      const colors = new Float32Array(bucket.cells.length * 3);
+      for (let i = 0; i < bucket.cells.length; i += 1) {
+        const cell = bucket.cells[i];
+        cell.color.toArray(colors, i * 3);
+        box.expandByPoint(cell.rest);
+        cell.body.position.copy(cell.rest);
+        this.world.add(cell.body);
+      }
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+      this.group.add(mesh);
+      this.groups.push({ mesh, geometry, material: bucket.material, cells: bucket.cells });
     }
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
-    this.group.add(this.mesh);
+    if (!this.groups.length) return;
+    box.getCenter(this.center);
     this.group.visible = true;
     this.dirty = true;
-    this.updateMatrices();
+    this.collapseWritten = false;
+    this.writeMatrices(this.collapseEnabled);
+    if (this.collapseEnabled) this.triggerCollapse();
   }
 
   setAmount(amount: number): void {
     this.amount = Math.max(0, amount);
     this.dirty = true;
-    this.updateMatrices();
+    if (!this.collapseEnabled) this.writeMatrices(false);
+  }
+
+  /** 切换物理崩塌；开启时立即重新崩塌。 */
+  setCollapse(enabled: boolean, impulse: number): void {
+    this.collapseImpulse = Math.max(0.05, impulse);
+    if (enabled === this.collapseEnabled) return;
+    this.collapseEnabled = enabled;
+    this.collapseWritten = false;
+    if (enabled) this.triggerCollapse();
+    else this.restore();
+  }
+
+  /** 重新触发一次崩塌（重置所有体素并给定初速度）。 */
+  triggerCollapse(): void {
+    if (!this.groups.length) return;
+    const { x: cx, z: cz } = this.center;
+    for (const group of this.groups) {
+      for (const cell of group.cells) {
+        const body = cell.body;
+        body.position.copy(cell.rest);
+        body.quaternion.identity();
+        let dx = cell.rest.x - cx;
+        let dz = cell.rest.z - cz;
+        const length = Math.hypot(dx, dz);
+        if (length < 1e-4) {
+          dx = Math.random() - 0.5;
+          dz = Math.random() - 0.5;
+        } else {
+          dx /= length;
+          dz /= length;
+        }
+        const push = this.collapseImpulse;
+        body.velocity.set(
+          dx * push * (0.4 + Math.random() * 0.9),
+          -(1.4 + Math.random() * 2.6) * Math.max(push, 0.35),
+          dz * push * (0.4 + Math.random() * 0.9),
+        );
+        body.angular
+          .set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+          .multiplyScalar(6 * (0.5 + push * 0.3));
+        body.sleeping = false;
+        body.restTime = 0;
+      }
+    }
+    this.world.wakeAll();
+    this.collapseWritten = false;
+    this.writeMatrices(true);
+  }
+
+  /** 每帧推进物理积分；崩塌结束后不再重写矩阵。 */
+  update(delta: number): void {
+    if (!this.collapseEnabled || !this.groups.length) return;
+    if (this.collapseWritten && !this.world.active) return;
+    this.world.step(delta);
+    this.writeMatrices(true);
+    if (!this.world.active) this.collapseWritten = true;
+  }
+
+  private restore(): void {
+    for (const group of this.groups) {
+      for (const cell of group.cells) {
+        cell.body.position.copy(cell.rest);
+        cell.body.velocity.set(0, 0, 0);
+        cell.body.angular.set(0, 0, 0);
+        cell.body.quaternion.identity();
+        cell.body.sleeping = false;
+        cell.body.restTime = 0;
+      }
+    }
+    this.writeMatrices(false);
   }
 
   /** 与主模型共用剖切平面，保持剖切效果一致。 */
   setClippingPlanes(planes: THREE.Plane[] | null): void {
-    if (!this.mesh) return;
-    const material = this.mesh.material as THREE.MeshStandardMaterial;
-    material.clippingPlanes = planes;
-    material.needsUpdate = true;
+    for (const group of this.groups) {
+      group.material.clippingPlanes = planes;
+      group.material.needsUpdate = true;
+    }
   }
 
-  private updateMatrices(): void {
-    if (!this.mesh || !this.dirty) return;
-    this.dirty = false;
+  private writeMatrices(collapse: boolean): void {
+    if (this.dirty) this.dirty = false;
     const matrix = new THREE.Matrix4();
     const quaternion = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const position = new THREE.Vector3();
-    const euler = new THREE.Euler();
+    const direction = new THREE.Vector3();
 
-    for (let i = 0; i < this.cells.length; i += 1) {
-      const cell = this.cells[i];
-      const direction = cell.position.clone().sub(this.center);
-      if (direction.lengthSq() < 1e-6) direction.set(0, 1, 0);
-      direction.normalize().add(cell.jitter).normalize();
-      const spread = this.amount * (0.55 + cell.scale * 0.7);
-      position.copy(cell.position).addScaledVector(direction, spread);
-      position.y -= this.amount * this.amount * 0.16 * cell.scale;
-
-      euler.set(
-        cell.spin.x * this.amount * 0.1,
-        cell.spin.y * this.amount * 0.1,
-        cell.spin.z * this.amount * 0.1,
-      );
-      quaternion.setFromEuler(euler);
-      const voxel = this.cellSize * 0.94 * cell.scale;
-      scale.setScalar(Math.max(0.03, voxel));
-      matrix.compose(position, quaternion, scale);
-      this.mesh.setMatrixAt(i, matrix);
+    for (const group of this.groups) {
+      for (let i = 0; i < group.cells.length; i += 1) {
+        const cell = group.cells[i];
+        if (collapse) {
+          position.copy(cell.body.position);
+          quaternion.copy(cell.body.quaternion);
+        } else {
+          direction.copy(cell.rest).sub(this.center);
+          if (direction.lengthSq() < 1e-6) direction.set(0, 1, 0);
+          direction.normalize().add(cell.spreadDir).normalize();
+          const spread = this.amount * cell.spread;
+          position.copy(cell.rest).addScaledVector(direction, spread);
+          position.y -= this.amount * this.amount * 0.16 * cell.spread;
+          quaternion.setFromAxisAngle(cell.spinAxis, this.amount * cell.spinSpeed * 0.12);
+        }
+        // 体素略微超过栅格尺寸，视觉上严丝合缝
+        scale.setScalar(cell.size * 1.04);
+        matrix.compose(position, quaternion, scale);
+        group.mesh.setMatrixAt(i, matrix);
+      }
+      group.mesh.instanceMatrix.needsUpdate = true;
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.computeBoundingSphere();
   }
 
   clear(): void {
-    if (this.mesh) {
-      this.group.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      (this.mesh.material as THREE.Material).dispose();
-      this.mesh.dispose();
-      this.mesh = null;
+    for (const group of this.groups) {
+      this.group.remove(group.mesh);
+      group.geometry.dispose();
+      group.material.dispose();
+      group.mesh.dispose();
     }
-    this.cells = [];
+    this.groups = [];
+    this.world.clear();
+    this.collapseEnabled = false;
+    this.collapseWritten = false;
     this.group.visible = false;
   }
 
