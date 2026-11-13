@@ -1,7 +1,7 @@
 {
   "module": "opening_door",
   "objects": 1,
-  "tris": 286,
+  "tris": 46,
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",

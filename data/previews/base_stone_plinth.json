@@ -1,7 +1,7 @@
 {
   "module": "base_stone_plinth",
   "objects": 1,
-  "tris": 616,
+  "tris": 72,
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",

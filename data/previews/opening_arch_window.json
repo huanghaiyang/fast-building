@@ -1,7 +1,7 @@
 {
   "module": "opening_arch_window",
   "objects": 1,
-  "tris": 4342,
+  "tris": 1590,
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",

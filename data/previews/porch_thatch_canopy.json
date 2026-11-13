@@ -1,7 +1,7 @@
 {
   "module": "porch_thatch_canopy",
   "objects": 1,
-  "tris": 1359,
+  "tris": 163,
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",
