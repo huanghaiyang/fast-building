@@ -1,0 +1,14 @@
+{
+  "module": "slab_floor",
+  "objects": 1,
+  "tris": 12,
+  "textures": {
+    "facade": "Bricks075A",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles006",
+    "door": "Planks023A",
+    "log": "log_bark",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "module": "opening_arch_door",
+  "objects": 1,
+  "tris": 1346,
+  "textures": {
+    "facade": "Bricks075A",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles006",
+    "door": "Planks023A",
+    "log": "log_bark",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble"
+  }
+}
