@@ -46,6 +46,10 @@ export function ViewerStage({ url }: Props) {
     instance.onFirstPersonLock = (locked) => setFpLocked(locked);
     viewerRef.current = instance;
     setViewer(instance);
+    // 开发模式下暴露实例，便于在控制台/自动化脚本里直接驱动预览器做回归
+    if (import.meta.env.DEV) {
+      (window as unknown as { __fbViewer?: BuildingViewer }).__fbViewer = instance;
+    }
     return () => {
       instance.onNodePick = null;
       instance.onFirstPersonChange = null;
@@ -53,6 +57,9 @@ export function ViewerStage({ url }: Props) {
       instance.dispose();
       viewerRef.current = null;
       setViewer(null);
+      if (import.meta.env.DEV) {
+        delete (window as unknown as { __fbViewer?: BuildingViewer }).__fbViewer;
+      }
     };
   }, []);
 

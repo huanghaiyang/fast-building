@@ -57,6 +57,9 @@ export function ModulePreview({ moduleId }: Props) {
     let model: THREE.Object3D | null = null;
     let disposed = false;
     let frame = 0;
+    const clock = new THREE.Clock();
+    const wheelNodes: THREE.Object3D[] = [];
+    const openables: Array<{ node: THREE.Object3D; base: number; sign: number }> = [];
 
     const loader = new GLTFLoader();
     loader.load(
@@ -73,6 +76,17 @@ export function ModulePreview({ moduleId }: Props) {
                 (item as THREE.MeshStandardMaterial).envMapIntensity = 0.9;
               }
             }
+          }
+          // 模块预览里的动态构件：水轮自转、门窗缓慢开合
+          if (/water.?wheel|mill_wheel/i.test(child.name)) wheelNodes.push(child);
+          const kind = child.userData?.fb_kind as string | undefined;
+          if ((kind === "door" || kind === "window") && !child.userData.fbPreviewOpenable) {
+            child.userData.fbPreviewOpenable = true;
+            openables.push({
+              node: child,
+              base: child.rotation.y,
+              sign: Number(child.userData.fb_open_sign ?? -1),
+            });
           }
         });
 
@@ -111,6 +125,13 @@ export function ModulePreview({ moduleId }: Props) {
     const animate = () => {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+      const time = clock.elapsedTime;
+      for (const wheel of wheelNodes) wheel.rotation.z -= dt * 0.9;
+      for (const item of openables) {
+        const open = 0.5 + 0.5 * Math.sin(time * 0.9);
+        item.node.rotation.y = item.base + item.sign * open * 0.7;
+      }
       controls.update();
       renderer.render(scene, camera);
     };

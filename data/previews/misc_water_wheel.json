@@ -1,7 +1,7 @@
 {
   "module": "misc_water_wheel",
-  "objects": 1,
-  "tris": 6280,
+  "objects": 2,
+  "tris": 6316,
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .api import jobs_api, resources
-from .config import FRONTEND_DIST, JOBS_DIR, TEXTURES_DIR
+from .config import CORS_ORIGINS, FRONTEND_DIST, JOBS_DIR, TEXTURES_DIR
 from .services import previews
 
 
@@ -31,7 +31,8 @@ app = FastAPI(title="Fast Building Platform", version="0.1.0", lifespan=lifespan
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5120", "http://127.0.0.1:5120"],
+    # 前端地址来自 .env（FB_FRONTEND_HOST / FB_FRONTEND_PORT）
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

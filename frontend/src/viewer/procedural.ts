@@ -146,6 +146,8 @@ export interface MaterialFXUniforms {
   uTime: { value: number };
   uWetness: { value: number };
   uRainFlow: { value: number };
+  /** 积雪覆盖 0~1：按世界法线朝上程度在表面叠加雪层。 */
+  uSnow: { value: number };
   uSSS: { value: number };
   uSSSColor: { value: THREE.Color };
   uDiffuseWrap: { value: number };
@@ -162,6 +164,7 @@ export function createMaterialFXUniforms(): MaterialFXUniforms {
     uTime: { value: 0 },
     uWetness: { value: 0 },
     uRainFlow: { value: 0.6 },
+    uSnow: { value: 0 },
     uSSS: { value: 0.35 },
     uSSSColor: { value: new THREE.Color("#c96a3f") },
     uDiffuseWrap: { value: 0.4 },
@@ -194,6 +197,7 @@ export function patchMaterialFX(
     shader.uniforms.uTime = uniforms.uTime;
     shader.uniforms.uWetness = uniforms.uWetness;
     shader.uniforms.uRainFlow = uniforms.uRainFlow;
+    shader.uniforms.uSnow = uniforms.uSnow;
     shader.uniforms.uSSS = uniforms.uSSS;
     shader.uniforms.uSSSColor = uniforms.uSSSColor;
     shader.uniforms.uDiffuseWrap = uniforms.uDiffuseWrap;
@@ -232,6 +236,7 @@ export function patchMaterialFX(
           "uniform float uTime;",
           "uniform float uWetness;",
           "uniform float uRainFlow;",
+          "uniform float uSnow;",
           "uniform float uSSS;",
           "uniform vec3 uSSSColor;",
           "uniform float uDiffuseWrap;",
@@ -261,12 +266,23 @@ export function patchMaterialFX(
           "  return value;",
           "}",
           "float fbWaterStreak( vec3 p, float t ) {",
-          "  float fbPatch = fbFbm( vec2( p.x * 0.8 + p.z * 0.5, p.z * 0.8 - p.x * 0.35 ) );",
-          "  float drift = fbFbm( vec2( p.x * 0.55, p.y * 0.16 ) );",
-          "  float phase = p.y * 1.45 + t * 0.55 + drift * 6.2831;",
-          "  float runnel = smoothstep( 0.52, 0.98, sin( phase ) * 0.5 + 0.5 );",
-          "  float flowMask = smoothstep( 0.32, 0.78, fbPatch );",
-          "  return clamp( runnel * mix( 0.3, 1.0, flowMask ) + drift * 0.1, 0.0, 1.0 );",
+          "  // 多层水膜：大块积水 + 顺重力下淌细流 + 边缘破断 + 水珠",
+          "  float film = fbFbm( vec2( p.x * 0.62 + p.z * 0.38, p.z * 0.66 - p.x * 0.27 ) );",
+          "  float runnel = fbFbm( vec2( p.x * 2.7, p.y * 0.5 + t * 0.95 ) );",
+          "  float breakup = fbFbm( vec2( p.x * 5.4, p.y * 1.35 + t * 1.8 ) );",
+          "  float beads = fbNoise( vec2( p.x * 9.5, p.y * 5.2 + t * 0.32 ) );",
+          "  float sheet = smoothstep( 0.4, 0.86, film );",
+          "  float streaks = smoothstep( 0.46, 0.9, runnel ) * smoothstep( 0.32, 0.68, breakup );",
+          "  float drops = smoothstep( 0.72, 0.96, beads ) * 0.22;",
+          "  return clamp( sheet * 0.5 + streaks * 0.85 + drops, 0.0, 1.0 );",
+          "}",
+          "float fbSnowMask( vec3 p, vec3 n ) {",
+          "  // 朝上的面先积雪；立面靠噪声形成不规则的挂雪边缘",
+          "  float up = clamp( n.y, 0.0, 1.0 );",
+          "  float patchy = fbFbm( vec2( p.x * 0.55 + p.z * 0.33, p.z * 0.48 - p.x * 0.26 ) );",
+          "  float settled = smoothstep( 0.12, 0.85, up + ( patchy - 0.5 ) * 0.42 );",
+          "  float edge = smoothstep( 0.3, 0.72, fbFbm( p.xz * 1.6 ) );",
+          "  return clamp( settled * uSnow * mix( 0.55, 1.0, edge ), 0.0, 1.0 );",
           "}",
         ].join("\n"),
       )
@@ -276,9 +292,12 @@ export function patchMaterialFX(
           "#include <map_fragment>",
           "float fbStain = texture2D( uGrungeMap, vFbGrungeUv ).r;",
           "diffuseColor.rgb = mix( diffuseColor.rgb, uStainColor, clamp( fbStain * uGrungeStrength, 0.0, 1.0 ) );",
-          "float fbFlow = fbWaterStreak( vFbWorldPos, uTime );",
+          "vec3 fbWorldNormal = normalize( vFbWorldNormal );",
+          "float fbFlow = fbWaterStreak( vFbWorldPos, uTime ) * mix( 0.4, 1.0, smoothstep( -0.35, 0.65, fbWorldNormal.y ) );",
           "diffuseColor.rgb *= mix( 1.0, 0.72, uWetness );",
-          "diffuseColor.rgb *= 1.0 - fbFlow * uRainFlow * 0.1;",
+          "diffuseColor.rgb *= 1.0 - fbFlow * uRainFlow * 0.12;",
+          "float fbSnow = fbSnowMask( vFbWorldPos, fbWorldNormal );",
+          "diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.93, 0.95, 0.99 ), fbSnow );",
         ].join("\n"),
       )
       .replace(
@@ -288,6 +307,7 @@ export function patchMaterialFX(
           "roughnessFactor = clamp( roughnessFactor + ( fbStain - 0.42 ) * uGrungeRough, 0.04, 1.0 );",
           "roughnessFactor = mix( roughnessFactor, 0.14, uWetness * 0.72 );",
           "roughnessFactor = mix( roughnessFactor, 0.035, fbFlow * uRainFlow * 0.75 );",
+          "roughnessFactor = mix( roughnessFactor, 0.84, fbSnow );",
           "roughnessFactor = clamp( roughnessFactor, 0.025, 1.0 );",
         ].join("\n"),
       )
@@ -296,6 +316,7 @@ export function patchMaterialFX(
         [
           "#include <metalnessmap_fragment>",
           "metalnessFactor = mix( metalnessFactor, 0.18, uWetness * 0.5 );",
+          "metalnessFactor = mix( metalnessFactor, 0.0, fbSnow );",
         ].join("\n"),
       )
       .replace(
@@ -312,6 +333,7 @@ export function patchMaterialFX(
           "float fbFresnel = pow( 1.0 - max( dot( normalize( normal ), fbViewDir ), 0.0 ), 3.0 );",
           "float fbSheen = uWetness * ( 0.08 + fbFlow * uRainFlow * 0.3 ) * mix( 0.4, 1.0, fbFresnel );",
           "reflectedLight.indirectSpecular += vec3( 0.55, 0.62, 0.72 ) * fbSheen;",
+          "reflectedLight.indirectSpecular += vec3( 0.42, 0.48, 0.58 ) * fbSnow * ( 0.1 + fbFresnel * 0.16 );",
         ].join("\n"),
       );
   };

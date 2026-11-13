@@ -296,6 +296,55 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     viewer?.setWetFlow(rain.flow);
   }, [viewer, rain]);
 
+  // ---------------------------------------------------------------- 雪景
+  const [snow, setSnow] = useState({ intensity: 0, cover: 0, auto: true });
+  useEffect(() => {
+    viewer?.setSnow(snow.intensity);
+    viewer?.setSnowAuto(snow.auto);
+    if (!snow.auto) viewer?.setSnowCover(snow.cover);
+  }, [viewer, snow]);
+
+  // 自动积雪时覆盖度由预览器推进，这里按固定频率同步回滑块
+  useEffect(() => {
+    if (!viewer || !snow.auto) return;
+    const timer = window.setInterval(() => {
+      const current = viewer.getSnow();
+      setSnow((state) =>
+        Math.abs(state.cover - current.cover) < 0.005 ? state : { ...state, cover: current.cover },
+      );
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [viewer, snow.auto]);
+
+  // ---------------------------------------------------------------- 昼夜循环
+  const [sunCycle, setSunCycle] = useState({ enabled: false, speed: 0.15 });
+  const [hour, setHour] = useState(10);
+  useEffect(() => {
+    viewer?.setSunCycle(sunCycle.enabled, sunCycle.speed);
+  }, [viewer, sunCycle]);
+  useEffect(() => {
+    if (!viewer) return;
+    const sync = (nextHour: number) => setHour(nextHour);
+    viewer.onDayTimeChange = sync;
+    setHour(viewer.getHour());
+    return () => {
+      if (viewer.onDayTimeChange === sync) viewer.onDayTimeChange = null;
+    };
+  }, [viewer]);
+
+  // ---------------------------------------------------------------- 动态构件
+  const [wheelSpin, setWheelSpin] = useState(true);
+  const [openAll, setOpenAll] = useState(false);
+  const [counts, setCounts] = useState({ openables: 0, wheels: 0 });
+  useEffect(() => {
+    viewer?.setWaterwheelSpin(wheelSpin);
+  }, [viewer, wheelSpin]);
+  useEffect(() => {
+    if (!viewer) return;
+    setCounts({ openables: viewer.getOpenableCount(), wheels: viewer.getWaterwheelCount() });
+    viewer.setOpenables(openAll);
+  }, [viewer, nodes, openAll]);
+
   const [volumetric, setVolumetric] = useState<VolumetricSettings>({
     enabled: false,
     intensity: 0.8,
@@ -868,31 +917,66 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
 
             {sun && (
               <section className="studio-section">
-                <h4>阳光方向</h4>
-                <Slider
-                  label="方位角"
-                  value={Math.round(sun.azimuth)}
-                  min={0}
-                  max={360}
-                  step={1}
-                  unit="°"
-                  onChange={(azimuth) =>
-                    setSun((current) => (current ? { ...current, azimuth } : current))
-                  }
+                <h4>阳光与昼夜</h4>
+                {!sunCycle.enabled && (
+                  <>
+                    <Slider
+                      label="方位角"
+                      value={Math.round(sun.azimuth)}
+                      min={0}
+                      max={360}
+                      step={1}
+                      unit="°"
+                      onChange={(azimuth) =>
+                        setSun((current) => (current ? { ...current, azimuth } : current))
+                      }
+                    />
+                    <Slider
+                      label="高度角"
+                      value={Math.round(sun.elevation)}
+                      min={0}
+                      max={90}
+                      step={1}
+                      unit="°"
+                      onChange={(elevation) =>
+                        setSun((current) => (current ? { ...current, elevation } : current))
+                      }
+                    />
+                  </>
+                )}
+                <Toggle
+                  label="真实昼夜循环（东升西落）"
+                  checked={sunCycle.enabled}
+                  onChange={(enabled) => setSunCycle((current) => ({ ...current, enabled }))}
                 />
-                <Slider
-                  label="高度角"
-                  value={Math.round(sun.elevation)}
-                  min={0}
-                  max={90}
-                  step={1}
-                  unit="°"
-                  onChange={(elevation) =>
-                    setSun((current) => (current ? { ...current, elevation } : current))
-                  }
-                />
+                {sunCycle.enabled && (
+                  <>
+                    <Slider
+                      label="时间推进"
+                      value={sunCycle.speed}
+                      min={0.01}
+                      max={0.6}
+                      step={0.01}
+                      unit=" h/s"
+                      onChange={(speed) => setSunCycle((current) => ({ ...current, speed }))}
+                    />
+                    <Slider
+                      label="当前时间"
+                      value={hour}
+                      min={0}
+                      max={24}
+                      step={0.05}
+                      unit=" 点"
+                      onChange={(value) => {
+                        setHour(value);
+                        viewer?.setHour(value);
+                      }}
+                    />
+                  </>
+                )}
                 <p className="studio-hint">
-                  方位角绕建筑旋转太阳，高度角决定日照角度；主光、天空光晕、阴影与体积光会同步变化，切换环境会重置为该预设的默认角度。
+                  方位角绕建筑旋转太阳，高度角决定日照角度；开启昼夜循环后按时段自动调整主光强度/色温、
+                  天空渐变、雾与环境光，夜晚出现星点与冷色月光。
                 </p>
               </section>
             )}
@@ -945,6 +1029,62 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
               />
               <p className="studio-hint">
                 湿度让墙面与地面变暗、粗糙度下降；雨水流动沿重力方向产生动态水痕高光。
+              </p>
+            </section>
+
+            <section className="studio-section">
+              <h4>雪景</h4>
+              <Slider
+                label="降雪强度"
+                value={snow.intensity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => setSnow((current) => ({ ...current, intensity: value }))}
+              />
+              <Toggle
+                label="自动积雪（停雪后缓慢融化）"
+                checked={snow.auto}
+                onChange={(auto) => setSnow((current) => ({ ...current, auto }))}
+              />
+              <Slider
+                label="积雪覆盖"
+                value={snow.cover}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => setSnow((current) => ({ ...current, cover: value }))}
+              />
+              <p className="studio-hint">
+                雪优先落在朝上的屋面和地面，立面靠噪声形成挂雪边缘；自动积雪开启时覆盖度会随降雪慢慢累积，停雪后缓慢融化。
+              </p>
+            </section>
+
+            <section className="studio-section">
+              <h4>动态构件</h4>
+              <Toggle
+                label={`水轮转动${counts.wheels > 0 ? "" : "（当前模型无）"}`}
+                checked={wheelSpin}
+                onChange={setWheelSpin}
+              />
+              <div className="studio-seg">
+                <button
+                  type="button"
+                  className={openAll ? "active" : ""}
+                  onClick={() => setOpenAll(true)}
+                >
+                  门窗全开
+                </button>
+                <button
+                  type="button"
+                  className={openAll ? "" : "active"}
+                  onClick={() => setOpenAll(false)}
+                >
+                  门窗全关
+                </button>
+              </div>
+              <p className="studio-hint">
+                画面中直接点击门扇 / 窗扇可单独开合（当前 {counts.openables} 个可动构件）；水轮绕自身轮轴持续转动。
               </p>
             </section>
 

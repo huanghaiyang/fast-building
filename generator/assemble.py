@@ -55,6 +55,7 @@ from .geom.watchtower import (
     build_lookout,
     build_stepped_base,
 )
+from .geom.openings import build_door_leaf, build_window_sash
 from .geom.watermill import build_mill_pit, build_water_wheel
 from .geom.window_trim import build_opening_trims
 from .material.pbr import MaterialLibrary
@@ -474,6 +475,58 @@ def _wall_builder(
     )
 
 
+def _add_opening_leaves(
+    mat_lib: MaterialLibrary,
+    collection: bpy.types.Collection,
+    objects: list[bpy.types.Object],
+    openings: list[Opening],
+    wall_location: tuple[float, float, float],
+    wall_rotation: float,
+    tiles: dict[str, float],
+    side: str,
+    floor: int,
+    skip_kinds: tuple[str, ...] = (),
+) -> None:
+    """为门 / 窗洞口补可独立开合的扇体。
+
+    物体原点放在合页边（洞口一侧、墙厚中线），几何向 +X 展开，
+    因此 GLB 里绕节点局部竖轴旋转即为开合；extras 写入驱动参数供前端读取。
+    """
+    cos_r = math.cos(wall_rotation)
+    sin_r = math.sin(wall_rotation)
+    for index, opening in enumerate(openings):
+        if opening.kind not in ("door", "window") or opening.kind in skip_kinds:
+            continue
+        width = opening.x1 - opening.x0
+        height = opening.z1 - opening.z0
+        if width < 0.32 or height < 0.38:
+            continue
+
+        if opening.kind == "door":
+            builder = build_door_leaf(width, height, tiles)
+        else:
+            builder = build_window_sash(width, height, tiles)
+
+        hinge_x = opening.x0
+        hinge_y = WALL_THICKNESS * 0.5
+        world_x = wall_location[0] + hinge_x * cos_r - hinge_y * sin_r
+        world_y = wall_location[1] + hinge_x * sin_r + hinge_y * cos_r
+        world_z = wall_location[2] + opening.z0
+
+        leaf = create_object(
+            builder,
+            f"{opening.kind}_{side}_f{floor}_{index}",
+            mat_lib,
+            collection,
+            (world_x, world_y, world_z),
+            wall_rotation,
+        )
+        leaf["fb_kind"] = opening.kind
+        leaf["fb_open_deg"] = 95.0 if opening.kind == "door" else 32.0
+        leaf["fb_open_sign"] = -1.0
+        objects.append(leaf)
+
+
 def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:
     """首层门洞开间的中心与宽度；不设门时返回 None。"""
     if not style.get("door", True):
@@ -600,6 +653,19 @@ def build_building(
             objects.append(
                 create_object(front, f"wall_front_f{floor}_b{bay}", mat_lib, collection, (x0, -ext, wall_z), 0.0)
             )
+            # 门窗扇体：橱窗 / 马厩开间由专用构件表现，不叠加普通扇体
+            if front_kind == "normal":
+                _add_opening_leaves(
+                    mat_lib,
+                    collection,
+                    objects,
+                    front_ops,
+                    (x0, -ext, wall_z),
+                    0.0,
+                    tiles,
+                    "front",
+                    floor,
+                )
             if trim_openings:
                 trims = build_opening_trims(
                     front_ops,
@@ -690,6 +756,17 @@ def build_building(
                     math.pi,
                 )
             )
+            _add_opening_leaves(
+                mat_lib,
+                collection,
+                objects,
+                back_ops,
+                (x0 + bay_width, spec.depth + ext, wall_z),
+                math.pi,
+                tiles,
+                "back",
+                floor,
+            )
             if trim_openings:
                 trims = build_opening_trims(
                     back_ops,
@@ -758,6 +835,17 @@ def build_building(
                     -math.pi / 2,
                 )
             )
+            _add_opening_leaves(
+                mat_lib,
+                collection,
+                objects,
+                left_ops,
+                (-ext, spec.depth + ext - WALL_THICKNESS, wall_z),
+                -math.pi / 2,
+                tiles,
+                "left",
+                floor,
+            )
             if trim_openings:
                 trims = build_opening_trims(
                     left_ops,
@@ -822,6 +910,17 @@ def build_building(
                     (spec.width + ext, -ext + WALL_THICKNESS, wall_z),
                     math.pi / 2,
                 )
+            )
+            _add_opening_leaves(
+                mat_lib,
+                collection,
+                objects,
+                right_ops,
+                (spec.width + ext, -ext + WALL_THICKNESS, wall_z),
+                math.pi / 2,
+                tiles,
+                "right",
+                floor,
             )
             if trim_openings:
                 trims = build_opening_trims(

@@ -11,7 +11,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { SimplifyModifier } from "three/examples/jsm/modifiers/SimplifyModifier.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-import { RainSystem, VolumetricLight, VoxelFracture } from "./effects";
+import { RainSystem, SnowSystem, VolumetricLight, VoxelFracture } from "./effects";
 import {
   MaterialFXUniforms,
   SurfaceSettings,
@@ -20,6 +20,7 @@ import {
   getRoughnessTexture,
   patchMaterialFX,
 } from "./procedural";
+import { createWaterMaterial, createWaterUniforms, isWaterMaterial } from "./water";
 import { subdivideGeometry } from "./subdivide";
 
 export interface ViewerStats {
@@ -127,6 +128,27 @@ export interface SunSettings {
   elevation: number;
 }
 
+/** 昼夜循环设置。 */
+export interface SunCycleSettings {
+  enabled: boolean;
+  /** 时间推进速度（小时/秒）。 */
+  speed: number;
+}
+
+/** 雪景设置：降雪强度、积雪覆盖与是否自动积雪。 */
+export interface SnowSettings {
+  intensity: number;
+  cover: number;
+  auto: boolean;
+}
+
+/** 可开合构件（门/窗）的概要信息。 */
+export interface OpenableInfo {
+  id: string;
+  kind: "door" | "window";
+  opened: boolean;
+}
+
 /** 主光到场景中心的距离，保证阴影相机覆盖面稳定。 */
 const SUN_DISTANCE = 46;
 
@@ -177,8 +199,7 @@ interface EnvironmentConfig {
   sky?: SkyConfig;
 }
 
-const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {
-  midday: {
+const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {  midday: {
     exposure: 1.0,
     background: "#a8cbe8",
     fog: ["#bcd6e8", 90, 340],
@@ -249,6 +270,28 @@ const ENV_CONFIGS: Record<EnvironmentPreset, EnvironmentConfig> = {
   },
 };
 
+/** 昼夜循环的调色板（按太阳高度角插值）。 */
+const DIURNAL = {
+  keyDawn: new THREE.Color("#ff9a4d"),
+  keyNoon: new THREE.Color("#fff4e0"),
+  keyNight: new THREE.Color("#7f97c9"),
+  hemiNight: new THREE.Color("#1b2740"),
+  hemiDay: new THREE.Color("#cfe6ff"),
+  fogNight: new THREE.Color("#0b1220"),
+  fogDay: new THREE.Color("#bcd6e8"),
+  fogGold: new THREE.Color("#e8b887"),
+  skyTopNight: new THREE.Color("#050914"),
+  skyTopDay: new THREE.Color("#3f7fc4"),
+  skyHorizonNight: new THREE.Color("#16243c"),
+  skyHorizonDay: new THREE.Color("#cfe4f2"),
+  skyHorizonGold: new THREE.Color("#f2b06a"),
+  skyBottomNight: new THREE.Color("#0a0e16"),
+  skyBottomDay: new THREE.Color("#6b6b60"),
+  sunGold: new THREE.Color("#ffcf8a"),
+  sunNoon: new THREE.Color("#fff6d8"),
+  snowGround: new THREE.Color("#eef4fb"),
+} as const;
+
 export class BuildingViewer {
   private readonly container: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
@@ -294,6 +337,9 @@ export class BuildingViewer {
 
   private sunSettings: SunSettings = { azimuth: 52, elevation: 49 };
   private skyConfig: SkyConfig | null = null;
+  private skyStars = 0;
+  private lastSkyRebuild = 0;
+  private lastDayTick = 0;
   private skyTimer = 0;
   private readonly sunDir = new THREE.Vector3();
 
@@ -342,6 +388,39 @@ export class BuildingViewer {
   private rainLevel = 0;
   private baseGroundColor = new THREE.Color("#0f151c");
   private baseGroundRoughness = 0.96;
+
+  // ---------------------------------------------------------------- 雪景 / 水体 / 动态构件
+  private readonly snow = new SnowSystem();
+  private snowIntensity = 0;
+  private snowCover = 0;
+  private snowAuto = false;
+  private readonly waterUniforms = createWaterUniforms();
+  private waterMaterial: THREE.ShaderMaterial | null = null;
+  private readonly waterMeshes: THREE.Mesh[] = [];
+  private readonly wheelNodes: THREE.Object3D[] = [];
+  private wheelSpin = true;
+  private readonly openables: Array<{
+    id: string;
+    node: THREE.Object3D;
+    kind: "door" | "window";
+    baseRotationY: number;
+    openDeg: number;
+    sign: number;
+    progress: number;
+    target: number;
+  }> = [];
+
+  // ---------------------------------------------------------------- 昼夜循环
+  onDayTimeChange: ((hour: number, sun: SunSettings) => void) | null = null;
+  private sunCycle = false;
+  private sunCycleSpeed = 0.15; // 小时/秒
+  private sunHour = 10;
+  private readonly diurnalColor = new THREE.Color();
+  private readonly diurnalColorB = new THREE.Color();
+  private readonly diurnalColorC = new THREE.Color();
+  private readonly diurnalColorD = new THREE.Color();
+  /** 昼夜循环下地面的明度缩放（1 = 预设原色）。 */
+  private diurnalLight = 1;
 
   private attractorItems: AttractorItem[] = [];
   private attractorEnabled = false;
@@ -453,6 +532,7 @@ export class BuildingViewer {
     this.applyEnvironment("midday");
 
     this.scene.add(this.rain.group);
+    this.scene.add(this.snow.group);
     this.scene.add(this.volumetric.group);
     this.scene.add(this.voxel.group);
     this.scene.add(this.blockGroup);
@@ -534,8 +614,8 @@ export class BuildingViewer {
     return this.sunDir;
   }
 
-  /** 生成纵向渐变的等距圆柱天空贴图，太阳光晕按当前方位角/高度角绘制。 */
-  private createSkyTexture(sky: SkyConfig): THREE.Texture {
+  /** 生成纵向渐变的等距圆柱天空贴图，太阳光晕按当前方位角/高度角绘制；stars 为夜空星点强度。 */
+  private createSkyTexture(sky: SkyConfig, stars = 0): THREE.Texture {
     const width = 1024;
     const height = 512;
     const canvas = document.createElement("canvas");
@@ -563,6 +643,26 @@ export class BuildingViewer {
         glow.addColorStop(1, `${sky.sun.color}00`);
         ctx.fillStyle = glow;
         ctx.fillRect(0, 0, width, height);
+      }
+
+      // 夜空星点：按强度铺一层随机星，避免夜晚天空一片死黑
+      if (stars > 0.01) {
+        let seed = 20261113;
+        const rand = () => {
+          seed = (seed * 16807) % 2147483647;
+          return seed / 2147483647;
+        };
+        ctx.fillStyle = "#e8f2ff";
+        for (let i = 0; i < 320; i += 1) {
+          const x = rand() * width;
+          const y = rand() * height * 0.55;
+          const radius = rand() * 1.5 + 0.35;
+          ctx.globalAlpha = stars * (0.3 + rand() * 0.7);
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       }
     }
     const texture = new THREE.CanvasTexture(canvas);
@@ -612,12 +712,14 @@ export class BuildingViewer {
 
     this.groundMaterial.color.set(config.ground);
     this.baseGroundColor.set(config.ground);
+    this.diurnalLight = 1;
     (this.grid.material as THREE.Material).opacity = config.gridOpacity;
 
     this.disposeEnvironment();
     this.skyConfig = config.sky ?? null;
+    this.skyStars = preset === "night" ? 0.55 : 0;
     if (config.sky) {
-      const skyTexture = this.createSkyTexture(config.sky);
+      const skyTexture = this.createSkyTexture(config.sky, this.skyStars);
       this.skyTexture = skyTexture;
       this.scene.background = skyTexture;
       this.envTarget = this.pmrem.fromEquirectangular(skyTexture);
@@ -656,9 +758,116 @@ export class BuildingViewer {
     this.onSunChange?.(this.getSun());
   }
 
+  // ================================================================ 昼夜循环
+  /** 开 / 关真实昼夜循环；speed 为时间推进速度（小时/秒）。 */
+  setSunCycle(enabled: boolean, speed?: number): void {
+    this.sunCycle = enabled;
+    if (speed !== undefined) this.sunCycleSpeed = Math.max(0.005, Math.min(2, speed));
+    if (enabled) this.applyDiurnal(this.sunHour, true);
+  }
+
+  /** 直接跳到某个时刻（0~24 点）。 */
+  setHour(hour: number): void {
+    this.sunHour = ((hour % 24) + 24) % 24;
+    this.applyDiurnal(this.sunHour, true);
+  }
+
+  getHour(): number {
+    return this.sunHour;
+  }
+
+  isSunCycleEnabled(): boolean {
+    return this.sunCycle;
+  }
+
+  /** 按一天中的时刻推算太阳角度、光色、天空与雾，主光/天空/阴影/体积光同步。 */
+  private applyDiurnal(hour: number, force: boolean): void {
+    const smooth = (edge0: number, edge1: number, value: number) => {
+      const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    };
+
+    const hours = ((hour % 24) + 24) % 24;
+    const angle = ((hours - 6) / 12) * Math.PI;
+    const sinAngle = Math.sin(angle);
+    const elevation = sinAngle * 72;
+    const sunHeight = Math.max(0, sinAngle);
+    const daylight = smooth(-0.06, 0.2, sinAngle);
+    const golden = (1 - smooth(0.12, 0.6, sunHeight)) * daylight;
+
+    this.sunSettings = {
+      azimuth: (((90 + ((hours - 6) / 12) * 180) % 360) + 360) % 360,
+      elevation: Math.max(0, elevation),
+    };
+    this.key.position.copy(this.sunDirection()).multiplyScalar(SUN_DISTANCE);
+    this.fxUniforms.uSunDir.value.copy(this.sunDir);
+    this.updateVolumetricAnchor();
+
+    // 主光：低角度偏橙、正午暖白、夜间转冷月光
+    this.key.color
+      .copy(DIURNAL.keyDawn)
+      .lerp(DIURNAL.keyNoon, smooth(0.08, 0.55, sunHeight))
+      .lerp(DIURNAL.keyNight, 1 - daylight);
+    this.key.intensity = 0.14 + 2.7 * daylight * (0.55 + 0.45 * sunHeight);
+    this.fill.intensity = 0.12 + 0.45 * daylight;
+    this.fill.color.copy(DIURNAL.hemiNight).lerp(DIURNAL.hemiDay, daylight);
+
+    this.hemi.color.copy(DIURNAL.hemiNight).lerp(DIURNAL.hemiDay, daylight);
+    this.baseHemiIntensity = 0.4 + 0.85 * daylight;
+    this.hemi.intensity = this.baseHemiIntensity * this.ambientMultiplier;
+    this.diurnalLight = 0.3 + 0.7 * daylight;
+
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) {
+      const rainFade = Math.max(0.35, 1 - this.rainLevel * 0.5 - this.wetness * 0.15);
+      fog.color.copy(DIURNAL.fogNight).lerp(DIURNAL.fogDay, daylight);
+      if (golden > 0.001) fog.color.lerp(DIURNAL.fogGold, golden * 0.45);
+      fog.near = this.baseFogNear * (0.55 + 0.45 * daylight) * rainFade;
+      fog.far = this.baseFogFar * (0.5 + 0.5 * daylight) * rainFade;
+    }
+    this.renderer.toneMappingExposure = 0.82 + 0.24 * daylight;
+
+    const skyTop = this.diurnalColor
+      .copy(DIURNAL.skyTopNight)
+      .lerp(DIURNAL.skyTopDay, daylight);
+    const skyHorizon = this.diurnalColorB
+      .copy(DIURNAL.skyHorizonNight)
+      .lerp(DIURNAL.skyHorizonDay, daylight);
+    if (golden > 0.001) skyHorizon.lerp(DIURNAL.skyHorizonGold, golden * 0.6);
+    const skyBottom = this.diurnalColorC
+      .copy(DIURNAL.skyBottomNight)
+      .lerp(DIURNAL.skyBottomDay, daylight);
+    const sunColor = this.diurnalColorD
+      .copy(DIURNAL.sunGold)
+      .lerp(DIURNAL.sunNoon, smooth(0.1, 0.6, sunHeight));
+
+    this.skyConfig = {
+      top: `#${skyTop.getHexString()}`,
+      horizon: `#${skyHorizon.getHexString()}`,
+      bottom: `#${skyBottom.getHexString()}`,
+      sun:
+        elevation > -3
+          ? {
+              color: `#${sunColor.getHexString()}`,
+              radius: 60 + 90 * (1 - sunHeight) + 40 * golden,
+            }
+          : undefined,
+    };
+    this.skyStars = 1 - daylight;
+
+    const now = performance.now();
+    if (force || now - this.lastSkyRebuild > 600) {
+      this.lastSkyRebuild = now;
+      this.rebuildSky();
+    }
+    if (force || now - this.lastDayTick > 200) {
+      this.lastDayTick = now;
+      this.onDayTimeChange?.(hours, this.getSun());
+    }
+  }
+
   /** 由光照位置反推方位角与高度角，用于环境切换时同步滑块。 */
-  private sunFromVector(position: [number, number, number]): SunSettings {
-    const vector = new THREE.Vector3(...position);
+  private sunFromVector(position: [number, number, number]): SunSettings {    const vector = new THREE.Vector3(...position);
     const length = vector.length() || 1;
     const elevation = THREE.MathUtils.radToDeg(
       Math.asin(THREE.MathUtils.clamp(vector.y / length, -1, 1)),
@@ -680,7 +889,7 @@ export class BuildingViewer {
   /** 重绘天空贴图并刷新 IBL，让太阳光晕跟随手动调整的角度。 */
   private rebuildSky(): void {
     if (!this.skyConfig) return;
-    const texture = this.createSkyTexture(this.skyConfig);
+    const texture = this.createSkyTexture(this.skyConfig, this.skyStars);
     this.skyTexture?.dispose();
     this.skyTexture = texture;
     this.scene.background = texture;
@@ -705,6 +914,17 @@ export class BuildingViewer {
     const delta = this.clock.getDelta();
     this.fxUniforms.uTime.value += delta;
     this.rain.update(delta);
+    this.snow.update(delta);
+    this.updateSnowCover(delta);
+    this.updateOpenables(delta);
+    this.updateWater(delta);
+    if (this.wheelSpin) {
+      for (const wheel of this.wheelNodes) wheel.rotation.z -= delta * 0.9;
+    }
+    if (this.sunCycle) {
+      this.sunHour = (this.sunHour + delta * this.sunCycleSpeed) % 24;
+      this.applyDiurnal(this.sunHour, false);
+    }
     this.volumetric.update(delta, this.camera);
     this.voxel.update(delta);
     this.updateFirstPerson(delta);
@@ -770,6 +990,9 @@ export class BuildingViewer {
           }
         });
 
+        // 门窗开合、水轮转动、水面材质替换（需在材质克隆之后）
+        this.prepareInteractive(model);
+
         // 落地并居中
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
@@ -804,6 +1027,7 @@ export class BuildingViewer {
         const centerOnGround = fitBox.getCenter(new THREE.Vector3());
         this.rainCenter.set(centerOnGround.x, 0, centerOnGround.z);
         this.rain.setCenter(this.rainCenter);
+        this.snow.setCenter(this.rainCenter);
         this.clipSettings.position = this.clampClipPosition(this.clipSettings.position);
         this.fractureCell = 0;
         this.updateVolumetricAnchor();
@@ -862,6 +1086,11 @@ export class BuildingViewer {
     this.voxel.clear();
     this.fractureCell = 0;
     this.selectedBlockId = null;
+    this.waterMeshes.length = 0;
+    this.wheelNodes.length = 0;
+    this.openables.length = 0;
+    this.waterMaterial?.dispose();
+    this.waterMaterial = null;
     if (!this.model) return;
     this.scene.remove(this.model);
     this.model.traverse((child) => {
@@ -1337,14 +1566,173 @@ export class BuildingViewer {
   private applyWetness(): void {
     this.fxUniforms.uWetness.value = this.wetness;
     this.fxUniforms.uRainFlow.value = this.wetFlow;
+    this.fxUniforms.uSnow.value = this.snowCover;
     this.patchAllMaterials();
-    this.groundMaterial.color.copy(this.baseGroundColor).multiplyScalar(1 - this.wetness * 0.32);
-    this.groundMaterial.roughness = Math.max(0.08, this.baseGroundRoughness - this.wetness * 0.55);
-    this.groundMaterial.metalness = this.wetness * 0.22;
+    this.groundMaterial.color
+      .copy(this.baseGroundColor)
+      .multiplyScalar((1 - this.wetness * 0.32) * this.diurnalLight)
+      .lerp(DIURNAL.snowGround, this.snowCover * 0.92);
+    this.groundMaterial.roughness = THREE.MathUtils.lerp(
+      Math.max(0.08, this.baseGroundRoughness - this.wetness * 0.55),
+      0.95,
+      this.snowCover,
+    );
+    this.groundMaterial.metalness = this.wetness * 0.22 * (1 - this.snowCover);
     const fog = this.scene.fog as THREE.Fog | null;
     if (fog) {
       fog.near = this.baseFogNear * Math.max(0.35, 1 - this.rainLevel * 0.4 - this.wetness * 0.12);
       fog.far = this.baseFogFar * Math.max(0.3, 1 - this.rainLevel * 0.55 - this.wetness * 0.18);
+    }
+  }
+
+  // ================================================================ 雪景
+  /** 降雪强度 0~1（0 关闭）。 */
+  setSnow(intensity: number): void {
+    this.snowIntensity = Math.max(0, Math.min(1, intensity));
+    this.snow.setIntensity(this.snowIntensity);
+  }
+
+  /** 积雪覆盖 0~1：沿朝上的表面累计，地面同步变白。 */
+  setSnowCover(cover: number): void {
+    this.snowCover = Math.max(0, Math.min(1, cover));
+    this.applyWetness();
+  }
+
+  /** 自动积雪：降雪时覆盖度缓慢增长，停雪后缓慢融化；关闭后由滑块直接控制。 */
+  setSnowAuto(enabled: boolean): void {
+    this.snowAuto = enabled;
+  }
+
+  getSnow(): SnowSettings {
+    return { intensity: this.snowIntensity, cover: this.snowCover, auto: this.snowAuto };
+  }
+
+  private updateSnowCover(delta: number): void {
+    if (!this.snowAuto) return;
+    if (this.snowIntensity > 0.001) {
+      const target = Math.min(1, this.snowIntensity * 0.95);
+      if (this.snowCover < target) this.setSnowCover(Math.min(target, this.snowCover + delta * 0.055));
+    } else if (this.snowCover > 0) {
+      this.setSnowCover(Math.max(0, this.snowCover - delta * 0.02));
+    }
+  }
+
+  // ================================================================ 水轮 / 水面
+  /** 水轮是否持续转动。 */
+  setWaterwheelSpin(enabled: boolean): void {
+    this.wheelSpin = enabled;
+  }
+
+  getWaterwheelCount(): number {
+    return this.wheelNodes.length;
+  }
+
+  private updateWater(delta: number): void {
+    this.waterUniforms.uTime.value += delta;
+    this.waterUniforms.uSunDir.value.copy(this.sunDir);
+    this.waterUniforms.uSunColor.value
+      .copy(this.key.color)
+      .multiplyScalar(Math.min(1, 0.35 + this.key.intensity * 0.28));
+    this.waterUniforms.uSkyColor.value.copy(this.hemi.color);
+  }
+
+  // ================================================================ 可开合门窗
+  getOpenableCount(): number {
+    return this.openables.length;
+  }
+
+  getOpenables(): OpenableInfo[] {
+    return this.openables.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      opened: item.target > 0.5,
+    }));
+  }
+
+  /** 批量开 / 关所有门窗。 */
+  setOpenables(open: boolean): void {
+    for (const item of this.openables) item.target = open ? 1 : 0;
+  }
+
+  /** 切换单个门窗（点击画面中的门扇/窗扇时调用）。 */
+  toggleOpenable(id: string): void {
+    const item = this.openables.find((entry) => entry.id === id);
+    if (item) item.target = item.target > 0.5 ? 0 : 1;
+  }
+
+  private updateOpenables(delta: number): void {
+    const step = Math.min(1, delta * 5.5);
+    for (const item of this.openables) {
+      if (Math.abs(item.target - item.progress) < 0.0005) continue;
+      item.progress += (item.target - item.progress) * step;
+      item.node.rotation.y =
+        item.baseRotationY + item.sign * THREE.MathUtils.degToRad(item.openDeg) * item.progress;
+    }
+  }
+
+  /** 模型加载后识别水面、水轮与门窗（依赖节点 extras / 材质名）。 */
+  private prepareInteractive(model: THREE.Object3D): void {
+    this.waterMeshes.length = 0;
+    this.wheelNodes.length = 0;
+    this.openables.length = 0;
+    this.waterMaterial?.dispose();
+    this.waterMaterial = null;
+
+    let waterUsed = false;
+    const waterMaterial = createWaterMaterial(this.waterUniforms);
+
+    model.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+
+      // 水面：生成器把轮坑水面写成 FB_water 材质
+      if (mesh.isMesh && isWaterMaterial(mesh.material)) {
+        const previous = mesh.material;
+        mesh.material = waterMaterial;
+        mesh.castShadow = false;
+        mesh.receiveShadow = true;
+        this.waterMeshes.push(mesh);
+        waterUsed = true;
+        for (const item of Array.isArray(previous) ? previous : [previous]) item?.dispose();
+      }
+
+      // 水轮：按节点名识别，只登记最外层，绕局部轴自转
+      if (/water.?wheel|mill_wheel/i.test(child.name)) {
+        let parent = child.parent;
+        let nested = false;
+        while (parent && parent !== model) {
+          if (/water.?wheel|mill_wheel/i.test(parent.name)) {
+            nested = true;
+            break;
+          }
+          parent = parent.parent;
+        }
+        if (!nested) this.wheelNodes.push(child);
+      }
+
+      // 门窗：生成器写入 extras（fb_kind / fb_open_deg / fb_open_sign）
+      const kind = child.userData?.fb_kind as string | undefined;
+      if ((kind === "door" || kind === "window") && !child.userData.fbOpenableId) {
+        const id = `openable-${this.openables.length}`;
+        this.openables.push({
+          id,
+          node: child,
+          kind: kind as "door" | "window",
+          baseRotationY: child.rotation.y,
+          openDeg: Number(child.userData.fb_open_deg ?? (kind === "door" ? 95 : 32)),
+          sign: Number(child.userData.fb_open_sign ?? -1),
+          progress: 0,
+          target: 0,
+        });
+        child.traverse((node) => {
+          node.userData.fbOpenableId = id;
+        });
+      }
+    });
+
+    if (waterUsed) {
+      this.waterMaterial = waterMaterial;
+    } else {
+      waterMaterial.dispose();
     }
   }
 
@@ -2199,6 +2587,9 @@ export class BuildingViewer {
 
     if (this.fractureSettings.enabled) return;
     const hit = this.raycaster.intersectObjects(meshes, false)[0];
+    // 点中门扇/窗扇则切换开合状态（同时保留节点选中）
+    const openableId = hit?.object.userData.fbOpenableId as string | undefined;
+    if (openableId) this.toggleOpenable(openableId);
     this.selectNode((hit?.object.userData.nodeId as string | undefined) ?? null);
   }
 
@@ -2222,6 +2613,7 @@ export class BuildingViewer {
     window.removeEventListener("keydown", this.handleGlobalKeyDown);
     this.clearModel();
     this.rain.dispose();
+    this.snow.dispose();
     this.volumetric.dispose();
     this.voxel.dispose();
     this.clipHelper.geometry.dispose();

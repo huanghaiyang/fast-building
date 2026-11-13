@@ -13,9 +13,9 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
-THUMB_WIDTH = 480
-THUMB_HEIGHT = 360
-LENS_MM = 50.0
+THUMB_WIDTH = 560
+THUMB_HEIGHT = 420
+LENS_MM = 58.0
 SENSOR_MM = 36.0
 
 
@@ -57,9 +57,9 @@ def render_thumbnail(png_path: Path) -> Path:
     # 以纵向视场角计算距离：纵向更窄，只用横向角会把宽扁构件裁掉
     fov_x = 2.0 * math.atan(SENSOR_MM / (2.0 * LENS_MM))
     fov_y = 2.0 * math.atan(math.tan(fov_x * 0.5) * THUMB_HEIGHT / THUMB_WIDTH)
-    distance = radius / math.sin(fov_y * 0.5) * 0.98
+    distance = radius / math.sin(fov_y * 0.5) * 1.02
     # 与前端预览一致的 3/4 视角：从前方（-Y）、右方（+X）、上方（+Z）看
-    direction = Vector((0.92, -1.35, 0.82)).normalized()
+    direction = Vector((0.9, -1.32, 0.7)).normalized()
     camera.location = center + direction * distance
     camera.rotation_euler = (center - camera.location).to_track_quat("-Z", "Y").to_euler()
     camera_data.clip_end = distance * 12.0
@@ -68,13 +68,13 @@ def render_thumbnail(png_path: Path) -> Path:
     shading.light = "STUDIO"
     shading.color_type = "TEXTURE"
     shading.show_shadows = True
-    shading.shadow_intensity = 0.45
+    shading.shadow_intensity = 0.38
     shading.show_cavity = True
     shading.cavity_type = "BOTH"
-    shading.curvature_ridge_factor = 1.0
-    shading.curvature_valley_factor = 1.2
+    shading.curvature_ridge_factor = 1.05
+    shading.curvature_valley_factor = 1.15
     shading.show_specular_highlight = True
-    scene.display.render_aa = "8"
+    scene.display.render_aa = "16"
 
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.render.film_transparent = True

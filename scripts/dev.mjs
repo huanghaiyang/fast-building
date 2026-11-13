@@ -9,12 +9,14 @@
  *   npm run build             只构建前端到 frontend/dist
  *
  * 说明：
- * - 前端固定 127.0.0.1:5120（见 frontend/vite.config.ts），/api、/out、/tex 反向代理到 8756；
+ * - 可执行文件与端口来自项目根目录 .env（模板见 .env.example），真实环境变量优先；
+ * - 前端 Vite dev server 的 host/port 由 .env 的 FB_FRONTEND_HOST / FB_FRONTEND_PORT 决定，
+ *   /api、/out、/tex 反向代理到 FB_HOST:FB_PORT；
  * - 后端 --reload 监听 backend/ 与 generator/ 下的 .py（见 backend/run.py）；
  * - 两个子进程输出分别加 [api] / [web] 前缀，退出时整树结束，不会留下孤儿进程。
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,8 +25,30 @@ const FRONTEND_DIR = path.join(ROOT, 'frontend');
 const VITE_BIN = path.join(FRONTEND_DIR, 'node_modules', 'vite', 'bin', 'vite.js');
 const BACKEND_ENTRY = path.join(ROOT, 'backend', 'run.py');
 
-const BACKEND_PORT = 8756;
-const FRONTEND_PORT = 5120;
+/** 读取项目根目录 .env（不覆盖真实环境变量）。 */
+function loadDotenv(file) {
+  if (!existsSync(file)) return;
+  const content = readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || !line.includes('=')) continue;
+    const index = line.indexOf('=');
+    const key = line.slice(0, index).trim();
+    let value = line.slice(index + 1).trim();
+    if (!key) continue;
+    if (value.length >= 2 && value[0] === value[value.length - 1] && (value[0] === '"' || value[0] === "'")) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+loadDotenv(path.join(ROOT, '.env'));
+
+const BACKEND_HOST = process.env.FB_HOST || '127.0.0.1';
+const BACKEND_PORT = Number(process.env.FB_PORT || 8756);
+const FRONTEND_HOST = process.env.FB_FRONTEND_HOST || '127.0.0.1';
+const FRONTEND_PORT = Number(process.env.FB_FRONTEND_PORT || 5120);
 
 const argv = process.argv.slice(2);
 const wantsProd = argv.includes('--prod');
@@ -173,7 +197,7 @@ function startWeb() {
     say('未找到 frontend/node_modules/vite，请先在 frontend 目录执行 npm install。');
     process.exit(1);
   }
-  say(`启动前端：Vite dev server（HMR，127.0.0.1:${FRONTEND_PORT}）`);
+  say(`启动前端：Vite dev server（HMR，${FRONTEND_HOST}:${FRONTEND_PORT}）`);
   return spawnChild('web', process.execPath, [VITE_BIN], { cwd: FRONTEND_DIR });
 }
 
@@ -238,11 +262,11 @@ async function main() {
     // 每次都重新构建，避免改了前端却仍托管旧的 dist
     await runBuild();
     startApi(false);
-    if (!(await waitUntilReady(`http://127.0.0.1:${BACKEND_PORT}/api/health`, 30000))) {
+    if (!(await waitUntilReady(`http://${BACKEND_HOST}:${BACKEND_PORT}/api/health`, 30000))) {
       shutdown(1, '后端未能就绪');
       return;
     }
-    say(`prod 已启动：http://127.0.0.1:${BACKEND_PORT}（单端口托管，无热更新）`);
+    say(`prod 已启动：http://${BACKEND_HOST}:${BACKEND_PORT}（单端口托管，无热更新）`);
     return;
   }
 
@@ -252,12 +276,12 @@ async function main() {
   const ready = [];
   if (needApi) {
     ready.push(
-      waitUntilReady(`http://127.0.0.1:${BACKEND_PORT}/api/health`, 30000).then((ok) => ['后端', ok]),
+      waitUntilReady(`http://${BACKEND_HOST}:${BACKEND_PORT}/api/health`, 30000).then((ok) => ['后端', ok]),
     );
   }
   if (needWeb) {
     ready.push(
-      waitUntilReady(`http://127.0.0.1:${FRONTEND_PORT}/`, 60000).then((ok) => ['前端', ok]),
+      waitUntilReady(`http://${FRONTEND_HOST}:${FRONTEND_PORT}/`, 60000).then((ok) => ['前端', ok]),
     );
   }
 
@@ -271,12 +295,12 @@ async function main() {
 
   say('dev 已启动：前后端热更新');
   if (needWeb) {
-    say(`  前端  http://127.0.0.1:${FRONTEND_PORT}   （HMR：改 frontend/src 即时生效）`);
-    say(`  代理  /api、/out、/tex -> http://127.0.0.1:${BACKEND_PORT}`);
+    say(`  前端  http://${FRONTEND_HOST}:${FRONTEND_PORT}   （HMR：改 frontend/src 即时生效）`);
+    say(`  代理  /api、/out、/tex -> http://${BACKEND_HOST}:${BACKEND_PORT}`);
   }
   if (needApi) {
-    say(`  后端  http://127.0.0.1:${BACKEND_PORT}   （--reload：改 backend/、generator/ 下 .py 自动重启）`);
-    say(`  接口  http://127.0.0.1:${BACKEND_PORT}/api/health    ·    文档 http://127.0.0.1:${BACKEND_PORT}/docs`);
+    say(`  后端  http://${BACKEND_HOST}:${BACKEND_PORT}   （--reload：改 backend/、generator/ 下 .py 自动重启）`);
+    say(`  接口  http://${BACKEND_HOST}:${BACKEND_PORT}/api/health    ·    文档 http://${BACKEND_HOST}:${BACKEND_PORT}/docs`);
   }
   say('按 Ctrl+C 结束');
 }

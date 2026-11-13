@@ -74,6 +74,16 @@ const DEFAULT_FORM: Footprint = {
     window_boxes: false,
     gable_window: false,
     door_dressing: false,
+    slate_roof: false,
+    roof_curve: 0.55,
+    water_wheel: false,
+    shopfront: false,
+    shop_board: false,
+    barn_door: false,
+    stable_bays: false,
+    jetty_brackets: false,
+    street_props: false,
+    ladder: false,
   },
 };
 
@@ -252,6 +262,16 @@ export default function App() {
               window_boxes: preset.window_boxes ?? current.medieval.window_boxes,
               gable_window: preset.gable_window ?? current.medieval.gable_window,
               door_dressing: preset.door_dressing ?? current.medieval.door_dressing,
+              slate_roof: preset.slate_roof ?? current.medieval.slate_roof,
+              roof_curve: preset.roof_curve ?? current.medieval.roof_curve,
+              water_wheel: preset.water_wheel ?? current.medieval.water_wheel,
+              shopfront: preset.shopfront ?? current.medieval.shopfront,
+              shop_board: preset.shop_board ?? current.medieval.shop_board,
+              barn_door: preset.barn_door ?? current.medieval.barn_door,
+              stable_bays: preset.stable_bays ?? current.medieval.stable_bays,
+              jetty_brackets: preset.jetty_brackets ?? current.medieval.jetty_brackets,
+              street_props: preset.street_props ?? current.medieval.street_props,
+              ladder: preset.ladder ?? current.medieval.ladder,
             };
           }
           // 风格自带的体量预设（例如茅草农舍默认单层小体量）

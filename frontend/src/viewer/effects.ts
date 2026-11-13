@@ -609,3 +609,113 @@ export class VolumetricLight {
   }
 }
 
+
+/** 飘雪：用带柔和圆点的 Points 模拟雪花，密度由强度控制。 */
+export class SnowSystem {
+  readonly group = new THREE.Group();
+  private readonly count: number;
+  private readonly positions: Float32Array;
+  private readonly flakes: Float32Array;
+  private readonly geometry: THREE.BufferGeometry;
+  private readonly material: THREE.PointsMaterial;
+  private readonly points: THREE.Points;
+  private readonly center = new THREE.Vector3(0, 0, 0);
+  private intensity = 0;
+  private area = 74;
+  private top = 42;
+  private wind = 0.35;
+  private flicker = 0;
+
+  constructor(count = 4200) {
+    this.count = count;
+    this.positions = new Float32Array(count * 3);
+    this.flakes = new Float32Array(count * 4);
+
+    const sprite = document.createElement("canvas");
+    sprite.width = 64;
+    sprite.height = 64;
+    const ctx = sprite.getContext("2d");
+    if (ctx) {
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, "rgba(255,255,255,1)");
+      gradient.addColorStop(0.45, "rgba(245,250,255,0.85)");
+      gradient.addColorStop(1, "rgba(230,240,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+    }
+    const texture = new THREE.CanvasTexture(sprite);
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    this.geometry = new THREE.BufferGeometry();
+    this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    this.geometry.setDrawRange(0, 0);
+
+    this.material = new THREE.PointsMaterial({
+      color: 0xf2f7ff,
+      map: texture,
+      transparent: true,
+      opacity: 0.85,
+      size: 0.1,
+      sizeAttenuation: true,
+      depthWrite: false,
+      fog: true,
+    });
+
+    this.points = new THREE.Points(this.geometry, this.material);
+    this.points.frustumCulled = false;
+    this.points.renderOrder = 3;
+    this.group.add(this.points);
+    this.group.visible = false;
+
+    for (let i = 0; i < count; i += 1) this.resetFlake(i, true);
+  }
+
+  private resetFlake(index: number, initial: boolean): void {
+    const base = index * 4;
+    this.flakes[base] = this.center.x + (Math.random() - 0.5) * this.area;
+    this.flakes[base + 1] = initial ? Math.random() * this.top : this.top + Math.random() * 8;
+    this.flakes[base + 2] = this.center.z + (Math.random() - 0.5) * this.area;
+    this.flakes[base + 3] = 0.9 + Math.random() * 1.40;
+  }
+
+  setCenter(center: THREE.Vector3): void {
+    this.center.copy(center);
+    for (let i = 0; i < this.count; i += 1) this.resetFlake(i, true);
+  }
+
+  /** 降雪强度 0~1；0 时整体隐藏。 */
+  setIntensity(value: number): void {
+    this.intensity = Math.max(0, Math.min(1, value));
+    this.group.visible = this.intensity > 0.001;
+    this.material.opacity = 0.35 + this.intensity * 0.6;
+    const active = Math.floor(this.count * Math.max(this.intensity, 0.001));
+    this.geometry.setDrawRange(0, active);
+  }
+
+  update(dt: number): void {
+    if (!this.group.visible) return;
+    this.flicker += dt;
+    const active = Math.floor(this.count * this.intensity);
+    const step = Math.min(dt, 0.06);
+    for (let i = 0; i < active; i += 1) {
+      const base = i * 4;
+      const sway = Math.sin(this.flicker * 1.6 + i * 0.37) * 0.55;
+      this.flakes[base] += (this.wind + sway) * step;
+      this.flakes[base + 1] -= this.flakes[base + 3] * step;
+      this.flakes[base + 2] += Math.cos(this.flicker * 1.2 + i * 0.71) * 0.28 * step;
+      if (this.flakes[base + 1] < 0) this.resetFlake(i, false);
+      const offset = i * 3;
+      this.positions[offset] = this.flakes[base];
+      this.positions[offset + 1] = this.flakes[base + 1];
+      this.positions[offset + 2] = this.flakes[base + 2];
+    }
+    const attribute = this.geometry.getAttribute("position") as THREE.BufferAttribute;
+    attribute.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
+    this.material.map?.dispose();
+    this.material.dispose();
+  }
+}

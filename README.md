@@ -4,7 +4,11 @@
 
 - 从模块库（墙体 / 楼板 / 屋顶 / 门窗 / 楼梯 / 阳台 / 基座 / 门廊…）与参数化规则组装整栋建筑；
 - 由本机 Blender 在后台无头生成 **GLB（含 PBR 贴图）**，浏览器里用 three.js 预览、实时编辑、下载；
-- 提供模块缩略图与三维预览缓存（后台预热），支持中世纪 / 乡土 / 废墟 / 街市等风格化构件开关。
+- 提供模块缩略图与三维预览缓存（后台预热），支持中世纪 / 乡土 / 废墟 / 街市等风格化构件开关；
+- **可开合门窗**：门扇 / 窗扇是独立节点，点击即可开关，也可一键全开 / 全关；
+- **水磨坊**：水轮持续转动，轮坑水面为动态水体着色器（波纹 / 高光 / 泡沫）；
+- **雪景**：降雪粒子 + 屋面地面自动积雪，可手动控制覆盖度；
+- **真实昼夜循环**：太阳东升西落，主光强度/色温、天空渐变、雾、环境光与星点随时间变化。
 
 技术栈：FastAPI + Uvicorn（后端）、React 18 + Vite 5 + three.js（前端）、Blender Python（生成器）。
 
@@ -16,8 +20,24 @@
 | --- | --- | --- |
 | Windows | 10/11 | 脚本与部分路径按 Windows 编写，核心代码跨平台 |
 | Node.js | ≥ 18.20 | 需全局 `fetch`、`AbortSignal.timeout` |
-| Python | 3.11，默认 `D:\thirdparty\venvs\fastbuild` | 可用 `FASTBUILD_PYTHON` 覆盖 |
-| Blender | 4.x / 5.x，默认 `D:\blender\blender.exe` | 需支持 `blender -b --python` 无头运行，可用 `FB_BLENDER_EXE` 覆盖 |
+| Python | 3.11，默认 `D:\thirdparty\venvs\fastbuild` | 可在 `.env` 用 `FASTBUILD_PYTHON` 覆盖 |
+| Blender | 4.x / 5.x，默认 `D:\blender\blender.exe` | 需支持 `blender -b --python` 无头运行，可在 `.env` 用 `FB_BLENDER_EXE` 覆盖 |
+
+## 配置（.env）
+
+可执行文件与端口统一在**项目根目录的 `.env`** 中配置（模板见 [.env.example](.env.example)，`.env` 已被 git 忽略）：
+
+```ini
+FASTBUILD_PYTHON=D:\thirdparty\venvs\fastbuild\Scripts\python.exe
+FB_BLENDER_EXE=D:\blender\blender.exe
+FB_HOST=127.0.0.1
+FB_PORT=8756
+FB_FRONTEND_HOST=127.0.0.1
+FB_FRONTEND_PORT=5120
+FB_JOB_TIMEOUT=180
+```
+
+这份配置同时被三处读取：`scripts/dev.mjs`（启动编排）、`backend/app/env.py`（Python 侧）、`frontend/vite.config.ts`（dev server 与代理）。**真实环境变量优先于 `.env`**，便于 CI 或多机覆盖。
 
 ## 安装
 
@@ -27,7 +47,7 @@ cd frontend
 npm install
 cd ..
 
-# 后端依赖（建议使用项目 venv）
+# 后端依赖（建议使用项目 venv 的 python）
 python -m pip install -r backend/requirements.txt
 ```
 
@@ -41,7 +61,7 @@ npm start          # 等价 npm run dev：前后端一起启动，带热更新
 
 - 前端（Vite HMR）：<http://127.0.0.1:5120>
 - 后端（API 文档）：<http://127.0.0.1:8756/docs> ，健康检查 <http://127.0.0.1:8756/api/health>
-- 前端把 `/api`、`/out`、`/tex` 反向代理到后端 8756，页面内无需关心跨端口
+- 前端把 `/api`、`/out`、`/tex` 反向代理到后端（地址取自 `.env`），页面内无需关心跨端口
 
 前后端在**前台**运行，日志带 `[api]` / `[web]` 前缀；按 **Ctrl+C** 会整树结束前后端，不留孤儿进程（因此不再需要单独的 stop / restart 脚本）。
 
@@ -65,38 +85,59 @@ npm start          # 等价 npm run dev：前后端一起启动，带热更新
 - **后端**：`python backend/run.py --reload` 监听 `backend/` 与 `generator/` 下的 `.py`，保存即重启。
   - 不监听 `data/`：任务产物与预览缓存持续写入，监听会导致反复重启；
   - Windows 下修补了 uvicorn 原生 reload 的「重启卡死」问题（原生实现依赖控制台 `CTRL_C_EVENT`，在无控制台/输出重定向场景下收不到事件，会永久阻塞在 `process.join()`）。现改为 `Process.terminate()` 重启，并复位内部标记，保证第一次 Ctrl+C 就能退出。
-- **前端**：Vite HMR / React Fast Refresh，改 `frontend/src` 即时生效；`vite.config.ts` 固定 `127.0.0.1:5120` + `strictPort`，不会悄悄换端口。
+- **前端**：Vite HMR / React Fast Refresh，改 `frontend/src` 即时生效；`vite.config.ts` 的 host/port 取自 `.env`，`strictPort` 保证端口被占用时明确失败。
+- **模块预览**：generator 或缩略图逻辑变化后，后端预热检测到时间戳变化会自动重建；也可用 `tools/rebuild_module_previews.py` 一次性批量重建（见下文）。
 - **构建**：`vite build` 时把 `TMP/TEMP` 指向 `frontend/node_modules/.tmp`，规避系统临时目录不可写/不可删导致的 esbuild `Access is denied`。
+
+## 交互与特效（工作室 → 环境与特效）
+
+- **门窗开合**：直接点击画面中的门扇 / 窗扇单独开关；面板里的「门窗全开 / 全关」批量控制。
+- **水轮与水面**：水磨坊建筑的水轮持续自转，轮坑水面使用动态水体着色器（滚动波纹、菲涅耳、太阳高光、顺流泡沫），可在面板里关闭转动。
+- **雪景**：`降雪强度` 控制雪粒密度；开启「自动积雪」后，朝上的屋面与地面会逐渐积累雪层，停雪后缓慢融化；也可直接拖动「积雪覆盖」。
+- **昼夜循环**：开启后太阳按一天 24 小时东升西落，主光强度/色温、天空渐变、雾、环境光与夜空星点同步变化；`时间推进` 控制循环速度（小时/秒），`当前时间` 可直接跳到任意时刻。
+- 雨天、体积光、剖切、体素碎裂等既有特效仍在同一面板。
+
+## 重新生成模块预览
+
+调整了 `generator/preview.py` / `generator/thumbnail.py`（造型、取景、材质或缩略图风格）后，可一次性重建全部历史模块的 GLB 与缩略图（Blender 无头，约 20 秒）：
+
+```bash
+D:\blender\blender.exe -b --factory-startup --python tools/rebuild_module_previews.py
+```
 
 ## 目录结构
 
 ```
 backend/            FastAPI 服务
   app/main.py       应用入口（挂载 /api、/out、/tex，dist 存在时托管前端）
+  app/env.py        读取项目根目录 .env（无第三方依赖）
   app/api/          资源与任务接口
   app/services/     任务队列、模块预览预热、贴图集
   run.py            启动入口（--reload / --host / --port）
 frontend/           React 18 + Vite 5 + three.js
   src/panels/       模块库、参数面板、工作室面板
-  src/viewer/       建筑预览、特效、程序化与细分逻辑
-  vite.config.ts    端口 / 严格端口 / 反向代理
-generator/          Blender 生成器（entry.py 为入口；assemble/schema/exporter/preview…）
+  src/viewer/       预览器、特效（雨/雪/体积光）、水面着色器、程序化材质、细分
+  vite.config.ts    dev server 与代理（地址取自 .env）
+generator/          Blender 生成器（entry.py 入口；assemble/schema/exporter/preview…）
+  geom/openings.py  可开合的门扇 / 窗扇几何（原点在合页边）
 data/               modules / styles / texturesets / previews / jobs / hdr
-tools/              校验与批测脚本（validate_gltf、batch_test、qa_styles、render_style…）
+tools/              校验、批测与预览重建（validate_gltf、batch_test、qa_styles、rebuild_module_previews…）
 scripts/dev.mjs     npm 编排入口（前后端启动 / 构建 / 只起单端）
+.env                本地配置（已 git 忽略，模板见 .env.example）
 .run/               本地临时产物（已 git 忽略）
 ```
 
-## 配置（环境变量）
+## 配置（.env / 环境变量）
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `FASTBUILD_PYTHON` | `D:\thirdparty\venvs\fastbuild\Scripts\python.exe` | Python 解释器（`scripts/dev.mjs` 优先读取） |
+| `FASTBUILD_PYTHON` | `D:\thirdparty\venvs\fastbuild\Scripts\python.exe` | Python 解释器 |
 | `FB_BLENDER_EXE` | `D:\blender\blender.exe` | Blender 可执行文件 |
 | `FB_HOST` / `FB_PORT` | `127.0.0.1` / `8756` | 后端监听地址与端口 |
+| `FB_FRONTEND_HOST` / `FB_FRONTEND_PORT` | `127.0.0.1` / `5120` | 前端 dev server 地址与端口（CORS / 代理自动跟随） |
 | `FB_JOB_TIMEOUT` | `180` | 单个生成任务超时（秒） |
 
-端口约定：后端 **8756**、前端 **5120**。若修改端口，需同步更新 `frontend/vite.config.ts` 的代理与 `backend/app/main.py` 的 CORS 白名单。
+以上配置都写在项目根目录 `.env` 中；真实环境变量优先级更高。修改端口后无需再手动同步 Vite 代理或 CORS。
 
 ## API 一览
 
@@ -147,9 +188,10 @@ scripts/dev.mjs     npm 编排入口（前后端启动 / 构建 / 只起单端�
 
 ## 常见问题
 
-- **端口被占用**：启动时会打印占用端口的 PID；先结束该进程，或同时修改后端端口与前端代理/CORS。
-- **找不到 Python**：设置 `FASTBUILD_PYTHON` 指向可用的 `python.exe`。
-- **`/api/health` 返回 `blender.ok=false`**：检查 `FB_BLENDER_EXE` 与 Blender 是否可无头运行。
-- **首次启动或改过 `generator/` 后较慢**：模块缩略图/预览会由 Blender 重新生成（后台预热按需补齐），属正常现象。
-- **前端页面空白**：确认 `frontend/node_modules` 已安装、5120 端口无旧实例占用。
+- **端口被占用**：启动时会打印占用端口的 PID；先结束该进程，或修改 `.env` 里的 `FB_PORT` / `FB_FRONTEND_PORT`（代理与 CORS 会自动跟随）。
+- **找不到 Python**：在 `.env` 里把 `FASTBUILD_PYTHON` 指向可用的 `python.exe`（或改用系统环境变量覆盖）。
+- **`/api/health` 返回 `blender.ok=false`**：检查 `.env` 的 `FB_BLENDER_EXE` 与 Blender 是否可无头运行。
+- **首次启动或改过 `generator/` 后较慢**：模块缩略图/预览会由 Blender 重新生成（后台预热按需补齐），属正常现象；也可用 `tools/rebuild_module_previews.py` 主动重建。
+- **前端页面空白**：确认 `frontend/node_modules` 已安装、`.env` 里前端端口未被旧实例占用。
 - **`vite build` 报 `Access is denied`**：已内置 `TMP/TEMP` 重定向；若仍出现，清理 `frontend/node_modules/.tmp` 后重试。
+- **门窗点不动 / 水轮不转**：这类交互依赖生成器写入的节点信息（`fb_kind` extras、`water_wheel` 节点名），需用当前版本的生成器重新生成模型（旧 GLB 不带这些信息）。

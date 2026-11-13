@@ -220,3 +220,24 @@ def build_mill_pit(
         LOG,
     )
     return builder
+
+def build_mill_channel(
+    tiles: dict[str, float],
+    length: float = 3.4,
+    width: float = 1.5,
+    depth: float = 0.34,
+) -> MeshBuilder:
+    """磨坊引水渠：整片水体 + 两侧石砌岸线（预览用，装配时轮坑自带水面）。"""
+    builder = MeshBuilder(tiles)
+    half_l = length * 0.5
+    half_w = width * 0.5
+    builder.add_box((-half_l, -half_w, 0.0), (half_l, half_w, 0.16), WATER)
+    for sign in (-1.0, 1.0):
+        y0 = sign * half_w
+        y1 = sign * (half_w + 0.34)
+        builder.add_box(
+            (-half_l - 0.22, min(y0, y1), 0.0),
+            (half_l + 0.22, max(y0, y1), depth),
+            STONE,
+        )
+    return builder

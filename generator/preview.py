@@ -36,7 +36,7 @@ from .geom.stair import build_straight_stair
 from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
 from .geom.wall_panel import Opening, build_wall_panel
-from .geom.watermill import build_water_wheel
+from .geom.watermill import build_mill_channel, build_water_wheel
 from .material.pbr import MaterialLibrary
 from .meshkit import MeshBuilder
 from .schema import SLAB_THICKNESS, WALL_THICKNESS
@@ -219,7 +219,8 @@ def _module_builders(module_id: str, tiles: dict[str, float]) -> list[PreviewPar
         return [(props, (-2.0, 0.0, 0.0))]
     if module_id == "misc_water_wheel":
         wheel = build_water_wheel(tiles, 1.6, 0.55, paddles=20, spokes=8)
-        return [(wheel, (0.0, 0.0, 1.6))]
+        channel = build_mill_channel(tiles, 3.4, 1.5)
+        return [(channel, (0.0, 0.0, 0.0)), (wheel, (0.0, 0.0, 1.6))]
     # 未知模块退化为标准墙板，保证接口始终有可用预览
     return _wall_builders(tiles)
 
@@ -253,6 +254,10 @@ def build_module_preview(
     tris = sum(
         len(polygon.vertices) - 2 for obj in objects for polygon in obj.data.polygons
     )
+    # 水磨坊预览包含水渠与水轮两个对象：给出可读名称，前端据此只让水轮旋转
+    if module_id == "misc_water_wheel" and len(objects) >= 2:
+        objects[0].name = "mill_water_channel"
+        objects[1].name = "water_wheel"
     stats = {
         "module": module_id,
         "objects": len(objects),

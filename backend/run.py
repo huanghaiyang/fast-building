@@ -23,6 +23,9 @@ ROOT = BACKEND_DIR.parent
 # uvicorn --reload 的子进程通过 multiprocessing spawn 继承该 sys.path。
 sys.path.insert(0, str(BACKEND_DIR))
 
+# 载入项目根目录 .env（真实环境变量优先），再读取监听地址/端口
+import app.env  # noqa: E402,F401  (import 时即完成 .env 载入)
+
 DEFAULT_HOST = os.environ.get("FB_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("FB_PORT", "8756"))
 
