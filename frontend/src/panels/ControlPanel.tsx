@@ -198,7 +198,9 @@ export function ControlPanel(props: Props) {
             ))}
           </div>
         </div>
-        <p className="hint">细分越高级曲面越圆润，但面数与文件体积同步上升；2 级仅建议近景查看。</p>
+        <p className="hint">
+          墙面边缘已自动做柔和倒角；细分越高级曲面越圆润，但面数与文件体积同步上升，2 级仅建议近景查看。
+        </p>
       </section>
 
       <section className="group">

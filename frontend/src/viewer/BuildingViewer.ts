@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { SimplifyModifier } from "three/examples/jsm/modifiers/SimplifyModifier.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 import { RainSystem, VolumetricLight, VoxelFracture } from "./effects";
@@ -285,6 +286,8 @@ export class BuildingViewer {
   onNodePick: ((node: NodeInfo | null) => void) | null = null;
   onClipPosition: ((position: number) => void) | null = null;
   onAttractorPicked: ((id: string, point: [number, number, number]) => void) | null = null;
+  /** 拖拽场景中的量场标记点时回调，用于同步面板数值。 */
+  onAttractorMoved: ((id: string, point: [number, number, number]) => void) | null = null;
   onBlocksChanged: ((blocks: BlockInfo[]) => void) | null = null;
   onSelectedBlock: ((block: BlockInfo | null) => void) | null = null;
   onSunChange: ((sun: SunSettings) => void) | null = null;
@@ -344,10 +347,24 @@ export class BuildingViewer {
   private attractorEnabled = false;
   private attractorPickMode = false;
   private attractorPickId: string | null = null;
+  private readonly attractorGroup = new THREE.Group();
+  private readonly attractorGuides = new Map<
+    string,
+    { core: THREE.Mesh; halo: THREE.Mesh }
+  >();
+  private attractorDragId: string | null = null;
+  private attractorDragControls = true;
+  private readonly attractorDragPlane = new THREE.Plane();
+  private readonly attractorDragOffset = new THREE.Vector3();
+  private readonly attractorDragPoint = new THREE.Vector3();
   private readonly deformBases = new WeakMap<
     THREE.Mesh,
     { position: Float32Array; normal: Float32Array | null }
   >();
+
+  private simplifyOverall = 1;
+  private readonly simplifyNodes = new Map<string, number>();
+  private readonly simplifyCache = new Map<string, THREE.BufferGeometry>();
 
   private readonly voxel = new VoxelFracture();
   private fractureSettings: FractureSettings = {
@@ -439,6 +456,8 @@ export class BuildingViewer {
     this.scene.add(this.volumetric.group);
     this.scene.add(this.voxel.group);
     this.scene.add(this.blockGroup);
+    this.attractorGroup.renderOrder = 5;
+    this.scene.add(this.attractorGroup);
 
     this.clipHelper = new THREE.PlaneHelper(this.clipPlane, 24, 0x58e0c4);
     this.clipHelper.visible = false;
@@ -760,7 +779,9 @@ export class BuildingViewer {
         model.position.y -= box.min.y;
         this.scene.add(model);
         this.model = model;
-        if (this.subdivisionLevel > 0) this.applySubdivision();
+        if (this.subdivisionLevel > 0 || this.simplifyOverall < 0.999) {
+          this.applyGeometryPipeline();
+        }
 
         const maxDim = Math.max(size.x, size.y, size.z, 1);
         const fitBox = new THREE.Box3().setFromObject(model);
@@ -854,6 +875,10 @@ export class BuildingViewer {
       }
     });
     this.originalGeometries.clear();
+    for (const geometry of this.simplifyCache.values()) geometry.dispose();
+    this.simplifyCache.clear();
+    this.simplifyNodes.clear();
+    this.simplifyOverall = 1;
     this.model = null;
   }
 
@@ -943,10 +968,96 @@ export class BuildingViewer {
     const next = Math.max(0, Math.min(2, Math.floor(level)));
     if (next === this.subdivisionLevel) return;
     this.subdivisionLevel = next;
-    this.applySubdivision();
+    this.applyGeometryPipeline();
   }
 
-  private applySubdivision(): void {
+  /** 整体三角面比例：1 为原始网格，数值越小面数越少（仅影响预览）。 */
+  setSimplifyOverall(ratio: number): void {
+    const next = Math.max(0.1, Math.min(1, ratio));
+    if (next === this.simplifyOverall) return;
+    this.simplifyOverall = next;
+    this.applyGeometryPipeline();
+  }
+
+  /** 单节点三角面比例：1 表示跟随整体设置。 */
+  setNodeSimplify(nodeId: string, ratio: number): void {
+    const next = Math.max(0.1, Math.min(1, ratio));
+    if (next >= 0.999) this.simplifyNodes.delete(nodeId);
+    else this.simplifyNodes.set(nodeId, next);
+    this.applyGeometryPipeline();
+  }
+
+  /** 新建量场作用点的默认位置：建筑正前方、约半高处。 */
+  getAttractorSpawn(): [number, number, number] {
+    // 优先落在视口可见区域（避开展开的工作室面板）的模型表面上
+    const samples: Array<[number, number]> = [
+      [0.38, 0.05],
+      [0.55, 0.05],
+      [0.2, 0.1],
+      [0.0, 0.05],
+    ];
+    const direction = this.camera.getWorldDirection(new THREE.Vector3());
+    for (const [ndcX, ndcY] of samples) {
+      this.raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
+      const hit = this.raycaster.intersectObjects([...this.nodes.values()], false)[0];
+      if (hit) {
+        const point = hit.point.clone().addScaledVector(direction, -0.6);
+        return [
+          Math.round(point.x * 10) / 10,
+          Math.round(point.y * 10) / 10,
+          Math.round(point.z * 10) / 10,
+        ];
+      }
+    }
+    const center = new THREE.Vector3();
+    this.modelBox.getCenter(center);
+    return [
+      Math.round(center.x * 10) / 10,
+      Math.round((this.modelBox.min.y + (this.modelBox.max.y - this.modelBox.min.y) * 0.45) * 10) / 10,
+      Math.round((this.modelBox.max.z + 1.5) * 10) / 10,
+    ];
+  }
+
+  /** 当前节点实际三角面数（简化/细分之后）。 */
+  getNodeTriangleCount(nodeId: string): number {
+    const mesh = this.nodes.get(nodeId);
+    if (!mesh) return 0;
+    const geometry = mesh.geometry;
+    const index = geometry.getIndex();
+    const count = index ? index.count : geometry.getAttribute("position").count;
+    return Math.floor(count / 3);
+  }
+
+  private isSimplifyCached(geometry: THREE.BufferGeometry): boolean {
+    for (const cached of this.simplifyCache.values()) {
+      if (cached === geometry) return true;
+    }
+    return false;
+  }
+
+  private getSimplifiedGeometry(
+    nodeId: string,
+    ratio: number,
+    original: THREE.BufferGeometry,
+  ): THREE.BufferGeometry {
+    const key = `${nodeId}:${ratio.toFixed(2)}`;
+    const cached = this.simplifyCache.get(key);
+    if (cached) return cached;
+    try {
+      const vertexCount = original.getAttribute("position").count;
+      const remove = Math.floor(vertexCount * (1 - ratio));
+      if (remove < 4) return original;
+      const simplified = new SimplifyModifier().modify(original, remove);
+      simplified.computeBoundingSphere();
+      this.simplifyCache.set(key, simplified);
+      return simplified;
+    } catch {
+      return original;
+    }
+  }
+
+  /** 统一应用三角面简化与曲面细分，两者都以原始几何为基准。 */
+  private applyGeometryPipeline(): void {
     if (!this.model) return;
     this.model.traverse((child) => {
       if (!(child as THREE.Mesh).isMesh) return;
@@ -956,9 +1067,20 @@ export class BuildingViewer {
         original = mesh.geometry;
         this.originalGeometries.set(mesh, original);
       }
+      const nodeId = (mesh.userData.nodeId as string | undefined) ?? "";
+      const ratio = this.simplifyNodes.get(nodeId) ?? this.simplifyOverall;
+      let base = original;
+      if (ratio < 0.999) base = this.getSimplifiedGeometry(nodeId, ratio, original);
+
       const previous = mesh.geometry;
-      const next = this.subdivisionLevel > 0 ? subdivideGeometry(original, this.subdivisionLevel) : original;
-      if (previous !== next && previous !== original) previous.dispose();
+      const next = this.subdivisionLevel > 0 ? subdivideGeometry(base, this.subdivisionLevel) : base;
+      if (
+        previous !== next &&
+        previous !== original &&
+        !this.isSimplifyCached(previous)
+      ) {
+        previous.dispose();
+      }
       mesh.geometry = next;
       this.deformBases.delete(mesh);
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -1352,11 +1474,125 @@ export class BuildingViewer {
     }));
     this.attractorEnabled = enabled;
     this.applyAttractor();
+    this.syncAttractorGuides();
   }
 
   setAttractorPickMode(enabled: boolean, id: string | null = null): void {
     this.attractorPickMode = enabled;
     this.attractorPickId = enabled ? id : null;
+    this.syncAttractorGuides();
+  }
+
+  /** 在场景中显示可拖拽的量场标记：实心球为作用点，线框球为影响半径。 */
+  private syncAttractorGuides(): void {
+    const visible = this.attractorEnabled || this.attractorPickMode;
+    this.attractorGroup.visible = visible && this.attractorItems.length > 0;
+
+    const alive = new Set<string>();
+    for (const item of this.attractorItems) {
+      alive.add(item.id);
+      let guide = this.attractorGuides.get(item.id);
+      if (!guide) {
+        const core = new THREE.Mesh(
+          new THREE.SphereGeometry(0.3, 16, 12),
+          new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0.95,
+            depthTest: false,
+            depthWrite: false,
+          }),
+        );
+        core.renderOrder = 21;
+        const halo = new THREE.Mesh(
+          new THREE.SphereGeometry(1, 20, 14),
+          new THREE.MeshBasicMaterial({
+            wireframe: true,
+            transparent: true,
+            opacity: 0.26,
+            depthWrite: false,
+          }),
+        );
+        core.userData.attractorId = item.id;
+        halo.userData.attractorId = item.id;
+        this.attractorGroup.add(core, halo);
+        guide = { core, halo };
+        this.attractorGuides.set(item.id, guide);
+      }
+      const color = item.mode === "attract" ? 0x58e0c4 : 0xff8a5c;
+      const coreMaterial = guide.core.material as THREE.MeshBasicMaterial;
+      const haloMaterial = guide.halo.material as THREE.MeshBasicMaterial;
+      coreMaterial.color.setHex(color);
+      haloMaterial.color.setHex(color);
+      coreMaterial.opacity = item.enabled ? 0.95 : 0.4;
+      haloMaterial.opacity = item.enabled ? 0.26 : 0.1;
+      guide.core.position.set(...item.point);
+      guide.halo.position.copy(guide.core.position);
+      guide.halo.scale.setScalar(Math.max(0.25, item.radius));
+      guide.halo.visible = item.radius > 0.25;
+    }
+
+    for (const [id, guide] of this.attractorGuides) {
+      if (alive.has(id)) continue;
+      this.attractorGroup.remove(guide.core, guide.halo);
+      guide.core.geometry.dispose();
+      guide.halo.geometry.dispose();
+      (guide.core.material as THREE.Material).dispose();
+      (guide.halo.material as THREE.Material).dispose();
+      this.attractorGuides.delete(id);
+    }
+  }
+
+  /** 拾取量场标记点，返回对应条目。 */
+  private hitAttractorGuide(event: PointerEvent): AttractorItem | null {
+    if (!this.attractorGroup.visible || !this.setRayFromEvent(event)) return null;
+    const hits = this.raycaster.intersectObjects(this.attractorGroup.children, false);
+    for (const hit of hits) {
+      const id = hit.object.userData.attractorId as string | undefined;
+      if (!id) continue;
+      const item = this.attractorItems.find((entry) => entry.id === id);
+      if (item) return item;
+    }
+    return null;
+  }
+
+  private beginAttractorDrag(item: AttractorItem, event: PointerEvent): void {
+    this.attractorDragId = item.id;
+    this.attractorDragControls = this.controls.enabled;
+    this.controls.enabled = false;
+    this.renderer.domElement.style.cursor = "grabbing";
+    this.renderer.domElement.setPointerCapture?.(event.pointerId);
+    // 拖动平面垂直于相机视线，保证鼠标移动与标记位移一致
+    const normal = this.camera.getWorldDirection(new THREE.Vector3()).negate();
+    const center = new THREE.Vector3(...item.point);
+    this.attractorDragPlane.setFromNormalAndCoplanarPoint(normal, center);
+    this.raycaster.ray.intersectPlane(this.attractorDragPlane, this.attractorDragPoint);
+    this.attractorDragOffset.copy(center).sub(this.attractorDragPoint);
+  }
+
+  private dragAttractor(event: PointerEvent): void {
+    const id = this.attractorDragId;
+    if (!id || !this.setRayFromEvent(event)) return;
+    if (!this.raycaster.ray.intersectPlane(this.attractorDragPlane, this.attractorDragPoint)) return;
+    this.attractorDragPoint.add(this.attractorDragOffset);
+    const item = this.attractorItems.find((entry) => entry.id === id);
+    if (!item) return;
+    const point: [number, number, number] = [
+      Math.round(this.attractorDragPoint.x * 100) / 100,
+      Math.round(this.attractorDragPoint.y * 100) / 100,
+      Math.round(this.attractorDragPoint.z * 100) / 100,
+    ];
+    item.point = point;
+    item.enabled = true;
+    this.applyAttractor();
+    this.syncAttractorGuides();
+    this.onAttractorMoved?.(id, point);
+  }
+
+  private endAttractorDrag(): void {
+    if (!this.attractorDragId) return;
+    this.attractorDragId = null;
+    this.controls.enabled = this.attractorDragControls;
+    this.renderer.domElement.style.cursor = this.buildMode ? "grab" : "";
   }
 
   private applyAttractor(): void {
@@ -1768,6 +2004,12 @@ export class BuildingViewer {
     if (event.button !== 0 || this.firstPerson) return;
     this.pointerState = { x: event.clientX, y: event.clientY, active: true, moved: false };
 
+    const guide = this.hitAttractorGuide(event);
+    if (guide) {
+      this.beginAttractorDrag(guide, event);
+      return;
+    }
+
     if (this.buildMode) {
       const hit = this.raycastBlock(event);
       if (hit) {
@@ -1789,7 +2031,13 @@ export class BuildingViewer {
   };
 
   private handlePointerMove = (event: PointerEvent): void => {
-    if (!this.pointerState.active) return;
+    if (!this.pointerState.active) {
+      // 悬停量场标记时给出可拖拽提示
+      if (!this.buildMode && !this.firstPerson && this.attractorGroup.visible) {
+        this.renderer.domElement.style.cursor = this.hitAttractorGuide(event) ? "grab" : "";
+      }
+      return;
+    }
     if (
       Math.abs(event.clientX - this.pointerState.x) +
         Math.abs(event.clientY - this.pointerState.y) >
@@ -1799,6 +2047,10 @@ export class BuildingViewer {
     }
     if (this.blockDragging) {
       this.dragBlock(event);
+      return;
+    }
+    if (this.attractorDragId) {
+      this.dragAttractor(event);
       return;
     }
     if (!this.clipDragging) return;
@@ -1814,9 +2066,14 @@ export class BuildingViewer {
   private handlePointerUp = (event: PointerEvent): void => {
     if (!this.pointerState.active) return;
     const clicked =
-      event.button === 0 && !this.pointerState.moved && !this.clipDragging && !this.blockDragging;
+      event.button === 0 &&
+      !this.pointerState.moved &&
+      !this.clipDragging &&
+      !this.blockDragging &&
+      !this.attractorDragId;
     this.pointerState.active = false;
     if (this.blockDragging) this.endBlockDrag();
+    if (this.attractorDragId) this.endAttractorDrag();
     this.clipDragging = false;
     if (!clicked) return;
     if (this.buildMode && event.altKey) this.addBlockAtPointer(event);

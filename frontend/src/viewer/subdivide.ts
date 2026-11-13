@@ -19,6 +19,8 @@ interface Soup {
 
 const WELD = 1e5;
 const EDGE_KEY_RADIX = 2097152;
+/** 二面角超过该阈值视为硬边：硬边不参与平滑，避免窗洞、方盒被细分拉歪。 */
+const SHARP_COS = Math.cos((35 * Math.PI) / 180);
 
 function edgeKey(a: number, b: number): number {
   return a < b ? a * EDGE_KEY_RADIX + b : b * EDGE_KEY_RADIX + a;
@@ -58,39 +60,68 @@ function readSoup(source: BufferGeometry): Soup {
 function loopPass(soup: Soup): Soup {
   const vertexCount = soup.positions.length / 3;
   const neighbors: number[][] = Array.from({ length: vertexCount }, () => []);
-  const edges = new Map<number, { a: number; b: number; opposite: number[] }>();
+  const edges = new Map<
+    number,
+    { a: number; b: number; opposite: number[]; normals: number[][] }
+  >();
 
-  const addEdge = (a: number, b: number, opposite: number) => {
+  const faceNormal = (a: number, b: number, c: number): number[] => {
+    const ax = soup.positions[a * 3];
+    const ay = soup.positions[a * 3 + 1];
+    const az = soup.positions[a * 3 + 2];
+    const ux = soup.positions[b * 3] - ax;
+    const uy = soup.positions[b * 3 + 1] - ay;
+    const uz = soup.positions[b * 3 + 2] - az;
+    const vx = soup.positions[c * 3] - ax;
+    const vy = soup.positions[c * 3 + 1] - ay;
+    const vz = soup.positions[c * 3 + 2] - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz) || 1;
+    return [nx / length, ny / length, nz / length];
+  };
+
+  const addEdge = (a: number, b: number, opposite: number, normal: number[]) => {
     const key = edgeKey(a, b);
     let record = edges.get(key);
     if (!record) {
-      record = { a, b, opposite: [] };
+      record = { a, b, opposite: [], normals: [] };
       edges.set(key, record);
       neighbors[a].push(b);
       neighbors[b].push(a);
     }
     record.opposite.push(opposite);
+    record.normals.push(normal);
   };
 
   for (let f = 0; f < soup.faces.length; f += 3) {
     const a = soup.faces[f];
     const b = soup.faces[f + 1];
     const c = soup.faces[f + 2];
-    addEdge(a, b, c);
-    addEdge(b, c, a);
-    addEdge(c, a, b);
+    const normal = faceNormal(a, b, c);
+    addEdge(a, b, c, normal);
+    addEdge(b, c, a, normal);
+    addEdge(c, a, b, normal);
   }
 
   const positions = soup.positions.slice();
   const nextFaces: number[] = [];
   const nextUvs: number[] = [];
 
-  // 边界顶点：只受两个边界邻点影响，避免细分后收缩
-  const boundary = new Map<number, number[]>();
-  for (const record of edges.values()) {
-    if (record.opposite.length !== 1) continue;
-    (boundary.get(record.a) ?? boundary.set(record.a, []).get(record.a)!).push(record.b);
-    (boundary.get(record.b) ?? boundary.set(record.b, []).get(record.b)!).push(record.a);
+  // 硬边（边界、非流形、二面角过大）上的顶点保持原位，窗洞和方盒不会被磨圆
+  const sharpEdges = new Set<number>();
+  const fixedVertices = new Set<number>();
+  for (const [key, record] of edges) {
+    let sharp = record.opposite.length !== 2;
+    if (!sharp) {
+      const [n1, n2] = record.normals;
+      sharp = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2] < SHARP_COS;
+    }
+    if (!sharp) continue;
+    sharpEdges.add(key);
+    fixedVertices.add(record.a);
+    fixedVertices.add(record.b);
   }
 
   const smoothed = new Array<number>(vertexCount * 3);
@@ -98,25 +129,10 @@ function loopPass(soup: Soup): Soup {
     const x = positions[v * 3];
     const y = positions[v * 3 + 1];
     const z = positions[v * 3 + 2];
-    const boundaryNeighbors = boundary.get(v);
-
-    if (boundaryNeighbors && boundaryNeighbors.length >= 2) {
-      const [n1, n2] = boundaryNeighbors;
-      smoothed[v * 3] = 0.75 * x + 0.125 * (positions[n1 * 3] + positions[n2 * 3]);
-      smoothed[v * 3 + 1] = 0.75 * y + 0.125 * (positions[n1 * 3 + 1] + positions[n2 * 3 + 1]);
-      smoothed[v * 3 + 2] = 0.75 * z + 0.125 * (positions[n1 * 3 + 2] + positions[n2 * 3 + 2]);
-      continue;
-    }
-    if (boundaryNeighbors) {
-      smoothed[v * 3] = x;
-      smoothed[v * 3 + 1] = y;
-      smoothed[v * 3 + 2] = z;
-      continue;
-    }
-
     const ring = neighbors[v];
     const n = ring.length;
-    if (n < 3) {
+
+    if (fixedVertices.has(v) || n < 3) {
       smoothed[v * 3] = x;
       smoothed[v * 3 + 1] = y;
       smoothed[v * 3 + 2] = z;
@@ -136,13 +152,13 @@ function loopPass(soup: Soup): Soup {
     smoothed[v * 3 + 2] = (1 - n * beta) * z + beta * sz;
   }
 
-  // 边点：内部边取 3/8 两端 + 1/8 两个对顶点，边界边取中点
+  // 边点：硬边取中点，其余取 3/8 两端 + 1/8 两个对顶点
   const edgePoint = new Map<number, number>();
   const edgePositions: number[] = [];
   for (const [key, record] of edges) {
     const a = record.a;
     const b = record.b;
-    if (record.opposite.length === 2) {
+    if (!sharpEdges.has(key) && record.opposite.length === 2) {
       const [o1, o2] = record.opposite;
       for (let axis = 0; axis < 3; axis += 1) {
         edgePositions.push(
@@ -152,9 +168,7 @@ function loopPass(soup: Soup): Soup {
       }
     } else {
       for (let axis = 0; axis < 3; axis += 1) {
-        edgePositions.push(
-          0.5 * (positions[a * 3 + axis] + positions[b * 3 + axis]),
-        );
+        edgePositions.push(0.5 * (positions[a * 3 + axis] + positions[b * 3 + axis]));
       }
     }
     edgePoint.set(key, vertexCount + edgePoint.size);
@@ -195,24 +209,71 @@ function loopPass(soup: Soup): Soup {
 }
 
 function toGeometry(soup: Soup): BufferGeometry {
-  // 先按拓扑合并计算平滑法线，再摊平成非索引几何以保留逐角 UV
-  const indexed = new BufferGeometry();
-  indexed.setAttribute("position", new Float32BufferAttribute(soup.positions, 3));
-  indexed.setIndex(soup.faces);
-  indexed.computeVertexNormals();
-  const normals = indexed.getAttribute("normal");
+  // 逐角法线：只在夹角小于阈值的相邻面之间平滑，硬边两侧保持各自的法线，
+  // 这样细分后的窗框、墙面仍然棱角分明，不会出现发亮的扭曲条纹。
+  const faceCount = soup.faces.length / 3;
+  const faceNormals: number[][] = new Array(faceCount);
+  const vertexFaces: number[][] = Array.from(
+    { length: soup.positions.length / 3 },
+    () => [],
+  );
+  for (let f = 0; f < faceCount; f += 1) {
+    const a = soup.faces[f * 3];
+    const b = soup.faces[f * 3 + 1];
+    const c = soup.faces[f * 3 + 2];
+    const ax = soup.positions[a * 3];
+    const ay = soup.positions[a * 3 + 1];
+    const az = soup.positions[a * 3 + 2];
+    const ux = soup.positions[b * 3] - ax;
+    const uy = soup.positions[b * 3 + 1] - ay;
+    const uz = soup.positions[b * 3 + 2] - az;
+    const vx = soup.positions[c * 3] - ax;
+    const vy = soup.positions[c * 3 + 1] - ay;
+    const vz = soup.positions[c * 3 + 2] - az;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const length = Math.hypot(nx, ny, nz) || 1;
+    faceNormals[f] = [nx / length, ny / length, nz / length];
+    vertexFaces[a].push(f);
+    vertexFaces[b].push(f);
+    vertexFaces[c].push(f);
+  }
 
   const positions: number[] = [];
   const normalData: number[] = [];
   const uvs: number[] = [];
   for (let corner = 0; corner < soup.faces.length; corner += 1) {
     const vertex = soup.faces[corner];
+    const own = faceNormals[Math.floor(corner / 3)];
+    let nx = 0;
+    let ny = 0;
+    let nz = 0;
+    for (const face of vertexFaces[vertex]) {
+      const normal = faceNormals[face];
+      const dot = normal[0] * own[0] + normal[1] * own[1] + normal[2] * own[2];
+      if (dot < SHARP_COS) continue;
+      nx += normal[0];
+      ny += normal[1];
+      nz += normal[2];
+    }
+    const length = Math.hypot(nx, ny, nz);
+    if (length < 1e-6) {
+      nx = own[0];
+      ny = own[1];
+      nz = own[2];
+    } else {
+      nx /= length;
+      ny /= length;
+      nz /= length;
+    }
+
     positions.push(
       soup.positions[vertex * 3],
       soup.positions[vertex * 3 + 1],
       soup.positions[vertex * 3 + 2],
     );
-    normalData.push(normals.getX(vertex), normals.getY(vertex), normals.getZ(vertex));
+    normalData.push(nx, ny, nz);
     if (soup.hasUv) uvs.push(soup.uvs[corner * 2], soup.uvs[corner * 2 + 1]);
   }
 
@@ -220,7 +281,6 @@ function toGeometry(soup: Soup): BufferGeometry {
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
   geometry.setAttribute("normal", new Float32BufferAttribute(normalData, 3));
   if (soup.hasUv) geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
-  indexed.dispose();
   return geometry;
 }
 

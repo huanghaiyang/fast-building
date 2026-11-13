@@ -263,7 +263,7 @@ export function patchMaterialFX(
           "float fbWaterStreak( vec3 p, float t ) {",
           "  float fbPatch = fbFbm( vec2( p.x * 0.8 + p.z * 0.5, p.z * 0.8 - p.x * 0.35 ) );",
           "  float drift = fbFbm( vec2( p.x * 0.55, p.y * 0.16 ) );",
-          "  float phase = p.y * 1.45 - t * 0.55 + drift * 6.2831;",
+          "  float phase = p.y * 1.45 + t * 0.55 + drift * 6.2831;",
           "  float runnel = smoothstep( 0.52, 0.98, sin( phase ) * 0.5 + 0.5 );",
           "  float flowMask = smoothstep( 0.32, 0.78, fbPatch );",
           "  return clamp( runnel * mix( 0.3, 1.0, flowMask ) + drift * 0.1, 0.0, 1.0 );",
