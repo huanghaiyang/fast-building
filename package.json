@@ -4,9 +4,12 @@
   "private": true,
   "description": "快速构建建筑平台（Blender 无头建模 + Web 工作台）",
   "scripts": {
-    "start": "powershell -ExecutionPolicy Bypass -File scripts/start.ps1",
-    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
-    "pause": "powershell -ExecutionPolicy Bypass -File scripts/stop.ps1",
-    "restart": "powershell -ExecutionPolicy Bypass -File scripts/restart.ps1"
+    "start": "node scripts/dev.mjs",
+    "dev": "node scripts/dev.mjs",
+    "prod": "node scripts/dev.mjs --prod",
+    "api": "node scripts/dev.mjs --only api",
+    "web": "node scripts/dev.mjs --only web",
+    "build": "node scripts/dev.mjs --build",
+    "typecheck": "npm --prefix frontend run typecheck"
   }
 }
