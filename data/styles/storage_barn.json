@@ -1,0 +1,47 @@
+{
+  "id": "storage_barn",
+  "name": "谷仓仓库",
+  "description": "单层半木构谷仓：正中央一樘通高的双开木板大门，门上是熟铁箍与 Z 形斜撑；两侧只开小方窗，毛石勒脚、板岩弯坡顶与粗脊梁，墙根堆着木桶、木箱、麻袋与柴堆，侧面靠一把长木梯。",
+  "window_w": 0.62,
+  "window_h": 0.62,
+  "sill_h": 2.05,
+  "windows_per_bay": 1,
+  "door": true,
+  "door_w": 2.94,
+  "door_h": 3.3,
+  "balcony": false,
+  "plank_panels": false,
+  "gable_frame": false,
+  "props_kind": "mixed",
+  "ladder_x": 8.3,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "log": "Wood092",
+    "stone": "stone_rubble",
+    "door": "Planks039",
+    "thatch": "thatch_straw"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "slate_roof": true,
+    "roof_curve": 0.5,
+    "barn_door": true,
+    "stone_plinth": true,
+    "street_props": true,
+    "ladder": true,
+    "dormers": 0,
+    "chimney": false,
+    "ivy": false
+  },
+  "preset": {
+    "width": 9.4,
+    "depth": 7.2,
+    "bays": 3,
+    "floors": 1,
+    "floor_height": 4.3,
+    "roof_pitch": 46,
+    "balcony": false
+  }
+}

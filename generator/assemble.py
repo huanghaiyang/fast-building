@@ -17,6 +17,7 @@ import bpy
 from . import quality
 from .geom.arch import add_opening_pane, add_round_arch_pane, arch_strips, round_arch_strips
 from .geom.balcony import build_balcony
+from .geom.barn import build_barn_door, build_door_hood
 from .geom.bellcote import build_bellcote
 from .geom.burn import build_burnt_roof, build_scorch_patches
 from .geom.buttress import build_buttress, build_finial_cross, build_pinnacle
@@ -27,16 +28,21 @@ from .geom.dormer import build_gable_dormer
 from .geom.foliage import build_vegetation
 from .geom.gable_frame import build_gable_frame
 from .geom.gallery import build_gallery
+from .geom.jetty import build_jetty_skirt
 from .geom.lancet import build_lancet, build_rose_window
 from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
 from .geom.plinth import build_plinth
 from .geom.porch import build_thatch_porch
+from .geom.props import build_ladder, build_sign_board, build_street_props, build_wall_board
 from .geom.ridge import build_ridge_cap
 from .geom.roof import build_flat_roof, build_gable_roof, build_open_roof_frame
 from .geom.ruin import build_collapsed_ruin, build_leaning_planks, build_rubble
+from .geom.shopfront import build_shop_window
 from .geom.sign import build_shop_sign
 from .geom.slab import build_slab
+from .geom.slate_roof import build_slate_roof, ridge_height
+from .geom.stable import build_stable_bay, build_tack_room_door
 from .geom.stair import build_straight_stair
 from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
@@ -49,6 +55,7 @@ from .geom.watchtower import (
     build_lookout,
     build_stepped_base,
 )
+from .geom.watermill import build_mill_pit, build_water_wheel
 from .geom.window_trim import build_opening_trims
 from .material.pbr import MaterialLibrary
 from .meshkit import MeshBuilder
@@ -237,6 +244,134 @@ def _side_openings(
     return _window_openings(count, span, wall_height, spec, rng)
 
 
+# --------------------------------------------------------------------------- 街市立面洞口
+def _shop_bays(spec: Spec, style: dict) -> set[int]:
+    """橱窗占哪几个开间：优先 ``shop_bays`` 列表，其次单个 ``shop_bay``。"""
+    if isinstance(style.get("shop_bays"), list):
+        return {int(index) for index in style["shop_bays"] if 0 <= int(index) < spec.bays}
+    bay = int(style.get("shop_bay", spec.bays // 2))
+    if not (0 <= bay < spec.bays):
+        bay = 0
+    return {bay}
+
+
+def _shop_openings(bay_width: float, wall_height: float, style: dict) -> list[Opening]:
+    """商铺橱窗：一块尽量占满开间的落地大窗。"""
+    width = min(float(style.get("shop_window_w", bay_width * 0.76)), bay_width - 0.55)
+    sill = float(style.get("shop_window_sill", 0.62))
+    height = min(float(style.get("shop_window_h", 1.82)), wall_height - sill - 0.45)
+    cx = bay_width * 0.5
+    return [Opening(cx - width * 0.5, cx + width * 0.5, sill, sill + height, "window")]
+
+
+def _stable_arch_opening(bay_width: float, wall_height: float, style: dict) -> list[Opening]:
+    """马厩开间：落地圆拱洞口（拱头由圆拱条带逼近）。"""
+    width = min(float(style.get("stall_width", bay_width * 0.74)), bay_width - 0.52)
+    z0 = float(style.get("stall_sill", 0.08))
+    height = min(float(style.get("stall_height", 2.28)), wall_height - z0 - 0.42)
+    cx = bay_width * 0.5
+    return [Opening(cx - width * 0.5, cx + width * 0.5, z0, z0 + height, "window")]
+
+
+def _wide_door_opening(
+    bay_width: float, wall_height: float, spec: Spec, style: dict
+) -> list[Opening]:
+    """仓门/鞍具房门：居中一块矩形门洞。"""
+    width = min(float(style.get("door_w", spec.openings.door_w)), bay_width * 0.86)
+    height = min(float(style.get("door_h", spec.openings.door_h)), wall_height - 0.42)
+    cx = bay_width * 0.5
+    return [Opening(cx - width * 0.5, cx + width * 0.5, 0.0, height, "door")]
+
+
+def _front_bay_plan(
+    bay: int,
+    bay_width: float,
+    wall_height: float,
+    floor: int,
+    spec: Spec,
+    style: dict,
+    medieval,
+    door_bay: int,
+) -> tuple[list[Opening], str, bool]:
+    """首层正立面按构件开关特化：返回 (洞口列表, 种类, 是否强制圆拱)。"""
+    is_door_bay = bay == door_bay
+    normal = _bay_openings(bay_width, wall_height, floor, "front", is_door_bay, spec, style)
+    if floor != 0:
+        return normal, "normal", False
+    if medieval.stable_bays:
+        # 门所在开间做鞍具房门，其余开间是一排圆拱
+        if is_door_bay:
+            return _wide_door_opening(bay_width, wall_height, spec, style), "stable_door", False
+        return _stable_arch_opening(bay_width, wall_height, style), "stable_arch", True
+    if medieval.barn_door and is_door_bay:
+        return _wide_door_opening(bay_width, wall_height, spec, style), "barn_door", False
+    if medieval.shopfront and bay in _shop_bays(spec, style):
+        return _shop_openings(bay_width, wall_height, style), "shop", False
+    return normal, "normal", False
+
+
+def _front_bay_parts(
+    kind: str,
+    openings: list[Opening],
+    bay_width: float,
+    wall_height: float,
+    tiles: dict[str, float],
+    spec: Spec,
+    style: dict,
+) -> list[tuple[str, MeshBuilder, float]]:
+    """首层正立面的附加构件：返回 (对象名, 几何, 局部 X 偏移)。"""
+    parts: list[tuple[str, MeshBuilder, float]] = []
+    if kind == "normal" or not openings:
+        return parts
+    op = openings[0]
+    if kind == "shop":
+        parts.append(
+            (
+                "shopfront",
+                build_shop_window(
+                    op,
+                    WALL_THICKNESS,
+                    tiles,
+                    kind=str(style.get("shop_kind", "books")),
+                    seed=spec.seed,
+                    glazed=bool(style.get("shop_glazed", True)),
+                    rows=int(style.get("shop_rows", 3)),
+                ),
+                0.0,
+            )
+        )
+    elif kind == "stable_arch":
+        parts.append(
+            (
+                "stable_bay",
+                build_stable_bay(
+                    bay_width,
+                    wall_height,
+                    op,
+                    tiles,
+                    seed=spec.seed,
+                    hay=bool(style.get("stall_hay", True)),
+                ),
+                0.0,
+            )
+        )
+    elif kind == "stable_door":
+        parts.append(
+            (
+                "stable_door",
+                build_tack_room_door(bay_width, wall_height, tiles, seed=spec.seed, opening=op),
+                0.0,
+            )
+        )
+    elif kind == "barn_door":
+        span = op.x1 - op.x0
+        height = op.z1
+        parts.append(("barn_door", build_barn_door(span, height, tiles, seed=spec.seed), op.x0))
+        if style.get("door_hood"):
+            parts.append(("door_hood", build_door_hood(span, height, tiles), op.x0))
+    return parts
+
+
 def _wall_panel(
     width: float,
     height: float,
@@ -249,8 +384,12 @@ def _wall_panel(
     round_arch: bool = False,
     glazed: bool = True,
     window_slot: str = "glass",
+    force_round_arch: bool = False,
+    force_arched: bool = False,
 ) -> MeshBuilder:
     """生成墙板；拱形模式下用矩形带逼近拱头，并单独补玻璃/门扇面片。"""
+    round_arch = round_arch or force_round_arch
+    arched = arched or force_arched
     if not arched:
         builder = build_wall_panel(
             width,
@@ -305,6 +444,8 @@ def _wall_builder(
     top_profile: list[tuple[float, float, float]] | None = None,
     glazed: bool = True,
     window_slot: str = "glass",
+    force_round_arch: bool = False,
+    force_arched: bool = False,
 ) -> MeshBuilder:
     """按开关选择原木墙或普通墙板；只有建筑外墙端才让圆木出挑。"""
     if medieval.log_walls:
@@ -328,16 +469,20 @@ def _wall_builder(
         round_arch=medieval.round_arch,
         glazed=glazed,
         window_slot=window_slot,
+        force_round_arch=force_round_arch,
+        force_arched=force_arched,
     )
 
 
 def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:
-    """首层中心开间的门洞中心与宽度；不设门时返回 None。"""
+    """首层门洞开间的中心与宽度；不设门时返回 None。"""
     if not style.get("door", True):
         return None
     bay_width = spec.width / spec.bays
-    door_w = min(float(style.get("door_w", spec.openings.door_w)), bay_width * 0.6)
-    return (spec.bays // 2 + 0.5) * bay_width, door_w
+    door_w = min(float(style.get("door_w", spec.openings.door_w)), bay_width * 0.74)
+    bay = int(style.get("door_bay", spec.bays // 2))
+    bay = min(max(0, bay), spec.bays - 1)
+    return ((bay + 0.5) * bay_width, door_w)
 
 
 # --------------------------------------------------------------------------- 主体装配
@@ -372,6 +517,8 @@ def build_building(
 
     objects: list[bpy.types.Object] = []
     wall_height = spec.floor_height - SLAB_THICKNESS
+    # 门洞所在开间（街市建筑常常把门偏置到一侧，默认居中）
+    door_bay = min(max(0, int(style.get("door_bay", spec.bays // 2))), spec.bays - 1)
 
     # 塌毁石屋：整栋退化为残墙 + 瓦砾 + 焦木，不再生成楼板、勒脚与屋顶
     if medieval.collapsed:
@@ -413,12 +560,28 @@ def build_building(
             create_object(slab, f"slab_f{floor}", mat_lib, collection, (-ext, -ext, 0.0))
         )
 
+        # 悬挑楼层的托木裙带：把「悬空的一层」补成有支撑的挑楼
+        if medieval.jetty_brackets and floor >= 1 and jetty_step > 0.0:
+            skirt = build_jetty_skirt(floor_w, floor_d, jetty_step, tiles)
+            objects.append(
+                create_object(
+                    skirt,
+                    f"jetty_skirt_f{floor}",
+                    mat_lib,
+                    collection,
+                    (-ext, -ext, base_z),
+                )
+            )
+
         # 前后立面：按开间切分
         for bay in range(spec.bays):
             x0 = bay * bay_width - ext
-            is_center = bay == spec.bays // 2
-
-            front_ops = _bay_openings(bay_width, wall_height, floor, "front", is_center, spec, style)
+            front_ops, front_kind, force_arch = _front_bay_plan(
+                bay, bay_width, wall_height, floor, spec, style, medieval, door_bay
+            )
+            # 马厩拱券开间不装玻璃：洞里是挡马门与草料架；
+            # 橱窗开间由橱窗构件自带玻璃，墙板不再叠一层
+            bay_glazed = glazed and front_kind not in ("stable_arch", "shop")
             front = _wall_builder(
                 bay_width,
                 wall_height,
@@ -429,8 +592,10 @@ def build_building(
                 bay == 0,
                 bay == spec.bays - 1,
                 edge_slot=trim_slot,
-                glazed=glazed,
+                glazed=bay_glazed,
                 window_slot=window_slot,
+                force_arched=force_arch,
+                force_round_arch=force_arch,
             )
             objects.append(
                 create_object(front, f"wall_front_f{floor}_b{bay}", mat_lib, collection, (x0, -ext, wall_z), 0.0)
@@ -441,8 +606,8 @@ def build_building(
                     WALL_THICKNESS,
                     tiles,
                     slot=trim_slot,
-                    arched=arched,
-                    round_arch=medieval.round_arch,
+                    arched=arched or force_arch,
+                    round_arch=medieval.round_arch or force_arch,
                     arch_ring=arch_ring,
                 )
                 objects.append(
@@ -469,10 +634,24 @@ def build_building(
                         0.0,
                     )
                 )
+            # 街市立面构件：橱窗 / 马厩开间 / 仓门
+            for extra_name, extra, dx in _front_bay_parts(
+                front_kind, front_ops, bay_width, wall_height, tiles, spec, style
+            ):
+                objects.append(
+                    create_object(
+                        extra,
+                        f"{extra_name}_f{floor}_b{bay}",
+                        mat_lib,
+                        collection,
+                        (x0 + dx, -ext, wall_z),
+                    )
+                )
             # 窗台花箱：只在首层正立面，且该开间确实有窗
             if (
                 medieval.window_boxes
                 and floor == 0
+                and front_kind == "normal"
                 and any(op.kind == "window" for op in front_ops)
             ):
                 boxes = build_window_boxes(front_ops, tiles, seed=spec.seed)
@@ -781,6 +960,98 @@ def build_building(
     # 毛石勒脚与茅草门廊（乡土构件）
     door = _ground_door(spec, style)
 
+    # ---------------------------------------------------------------- 街市构件
+    # 沿墙陈设：木桶、木箱、麻袋、干草垛、书堆、陶罐、藤篮与柴堆
+    if medieval.street_props:
+        props = build_street_props(
+            spec.width,
+            0.0,
+            tiles,
+            seed=spec.seed,
+            kind=str(style.get("props_kind", "mixed")),
+            door=door,
+        )
+        objects.append(create_object(props, "street_props", mat_lib, collection))
+
+    # 靠墙木梯
+    if medieval.ladder:
+        ladder_h = max(1.4, min(2.8, wall_height - 0.12))
+        ladder_x = float(style.get("ladder_x", 0.45))
+        ladder = build_ladder(tiles, height=ladder_h)
+        objects.append(
+            create_object(
+                ladder,
+                "ladder",
+                mat_lib,
+                collection,
+                (min(max(0.3, ladder_x), spec.width - 0.95), 0.0, 0.0),
+            )
+        )
+
+    # 门楣横招牌 + 门口的立式招牌
+    if medieval.shop_board and door is not None:
+        door_cx, door_w = door
+        board_w = min(float(style.get("board_w", 2.2)), spec.width - 0.9)
+        board_h = float(style.get("board_h", 0.62))
+        board_z = float(style.get("board_z", spec.floor_height - 0.45))
+        board_x = min(max(door_cx - board_w * 0.5, 0.4), spec.width - board_w - 0.4)
+        board = build_wall_board(tiles, board_w, board_h)
+        objects.append(
+            create_object(board, "shop_board", mat_lib, collection, (board_x, 0.0, board_z))
+        )
+        if bool(style.get("standing_sign")):
+            sign_w = float(style.get("sign_w", 0.98))
+            sign_h = float(style.get("sign_h", 1.52))
+            sign_x = door_cx + door_w * 0.5 + 0.65
+            if sign_x + sign_w > spec.width - 0.35:
+                sign_x = door_cx - door_w * 0.5 - 0.65 - sign_w
+            sign_x = min(max(0.35, sign_x), spec.width - sign_w - 0.35)
+            objects.append(
+                create_object(
+                    build_sign_board(tiles, sign_w, sign_h),
+                    "standing_sign",
+                    mat_lib,
+                    collection,
+                    (sign_x, 0.0, 0.0),
+                )
+            )
+
+    # 水磨坊：水轮 + 轮坑水面 + 送水木槽
+    if medieval.water_wheel:
+        radius = float(style.get("wheel_radius", 1.95))
+        wheel_w = float(style.get("wheel_width", 0.62))
+        axle_ratio = float(style.get("wheel_axle_ratio", 0.82))
+        wheel_x = min(
+            max(radius + 0.35, spec.width * float(style.get("wheel_x", 0.72))),
+            spec.width - 0.35,
+        )
+        wheel = build_water_wheel(
+            tiles,
+            radius,
+            wheel_w,
+            paddles=int(style.get("wheel_paddles", 16)),
+            spokes=int(style.get("wheel_spokes", 8)),
+        )
+        objects.append(
+            create_object(
+                wheel,
+                "water_wheel",
+                mat_lib,
+                collection,
+                (wheel_x, -(wheel_w * 0.5 + 0.12), radius * axle_ratio),
+            )
+        )
+        pit = build_mill_pit(
+            tiles,
+            radius,
+            wheel_w,
+            sluice_side=float(style.get("wheel_sluice_side", -1.0)),
+            axle_ratio=axle_ratio,
+        )
+        objects.append(
+            create_object(pit, "mill_pit", mat_lib, collection, (wheel_x, 0.0, 0.0))
+        )
+
     # 悬挑店招：挂在门旁，朝向正面
     if medieval.shop_sign and door is not None:
         door_cx, door_w = door
@@ -859,7 +1130,7 @@ def build_building(
     roof_z = spec.floors * spec.floor_height
     roof_top = roof_z + 0.22
     roof_half = (roof_w + 0.9) * 0.5
-    roof_overhang = 0.45
+    roof_overhang = 0.36 if medieval.slate_roof else 0.45
 
     if medieval.lookout:
         # 石砌瞭望塔：塔身用木挑廊 + 木构瞭望棚收头，不再生成整栋坡屋顶
@@ -1071,6 +1342,27 @@ def build_building(
                             ),
                         )
                     )
+        elif medieval.slate_roof:
+            # 板岩弯坡屋顶：厚石瓦 + 翘檐 + 通长脊梁 + 露明椽条，自带山墙三角面
+            curve = medieval.roof_curve
+            roof = build_slate_roof(
+                roof_w,
+                roof_d,
+                roof_z,
+                spec.roof_pitch,
+                roof_overhang,
+                0.18,
+                tiles,
+                seed=spec.seed,
+                curve=curve,
+                gable_slot="facade",
+                slate_slot="roof",
+                ridge_slot="trim",
+                timber_slot="trim",
+                gable_timber=medieval.timber_frame,
+            )
+            roof_top = roof_z + 0.18
+            roof_half = (roof_w + 2.0 * roof_overhang) * 0.5
         else:
             roof = build_gable_roof(
                 roof_w,
@@ -1089,14 +1381,19 @@ def build_building(
         )
 
         # 悬山收头：屋脊压梁探出山墙，山墙两侧补木封檐板
-        if medieval.ridge_cap and not medieval.burnt:
+        if medieval.ridge_cap and not medieval.burnt and not medieval.slate_roof:
             cap = build_ridge_cap(roof_w, roof_d, roof_z, spec.roof_pitch, 0.45, 0.22, tiles)
             objects.append(
                 create_object(cap, "ridge_cap", mat_lib, collection, (-top_ext, -top_ext, 0.0))
             )
 
-        # 半木构山墙：三角墙面外加外露木架
-        if style.get("gable_frame") and not medieval.thatch_roof and not medieval.burnt:
+        # 半木构山墙：三角墙面外加外露木架（板岩屋顶自带山墙木构，不再叠一层）
+        if (
+            style.get("gable_frame")
+            and not medieval.thatch_roof
+            and not medieval.burnt
+            and not medieval.slate_roof
+        ):
             gable_half = roof_w * 0.5 + 0.45
             frame_rise = math.tan(math.radians(spec.roof_pitch)) * gable_half
             frame = build_gable_frame(2.0 * gable_half, frame_rise, tiles)
@@ -1245,7 +1542,7 @@ def build_building(
             )
             pitch = math.tan(math.radians(spec.roof_pitch))
             # 沿坡面向内收，使窗体嵌入坡面而不是挂在檐口
-            inset = roof_half * 0.34 if thatch else 0.9
+            inset = roof_half * 0.34 if thatch else float(style.get("dormer_inset", 0.9))
             surface = roof_top + inset * pitch
             z_base = surface - (0.30 if thatch else 0.25)
             for index in range(count):

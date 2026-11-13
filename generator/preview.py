@@ -16,20 +16,27 @@ import bpy
 
 from . import quality
 from .assemble import create_object, ensure_collection, reset_scene
-from .geom.arch import add_opening_pane, arch_strips
+from .geom.arch import add_opening_pane, arch_strips, round_arch_strips
 from .geom.balcony import build_balcony
+from .geom.barn import build_barn_door
 from .geom.chimney import build_chimney
 from .geom.dormer import build_gable_dormer
+from .geom.jetty import build_jetty_skirt
 from .geom.logwall import build_log_wall
 from .geom.parapet import build_crenellated_parapet
 from .geom.plinth import build_plinth
 from .geom.porch import build_thatch_porch
+from .geom.props import build_street_props
 from .geom.roof import build_flat_roof, build_gable_roof
+from .geom.shopfront import build_shop_window
 from .geom.slab import build_slab
+from .geom.slate_roof import build_slate_roof
+from .geom.stable import build_stable_bay
 from .geom.stair import build_straight_stair
 from .geom.thatch import build_thatch_roof
 from .geom.timber import build_timber_frame
 from .geom.wall_panel import Opening, build_wall_panel
+from .geom.watermill import build_water_wheel
 from .material.pbr import MaterialLibrary
 from .meshkit import MeshBuilder
 from .schema import SLAB_THICKNESS, WALL_THICKNESS
@@ -72,14 +79,16 @@ def _preview_material(data_dir: Path) -> MaterialLibrary:
             return preferred
         return _pick(sets, keywords, fallback)
 
+    # 优先用与街市风格一致的 CC0 实拍贴图，让模块缩略图与实际生成保持同一套材质
     style = {
         "palette": {
-            "trim": pick("timber_oak", ("plank", "wood", "timber"), facade),
-            "roof": _pick(sets, ("roof", "shingle"), facade),
-            "log": pick("log_bark", ("log", "wood", "timber"), facade),
+            "facade": facade,
+            "trim": pick("timber_oak", ("timber", "wood", "plank"), facade),
+            "roof": pick("RoofingTiles013A", ("roof", "shingle"), facade),
+            "log": pick("Wood092", ("log", "wood", "timber"), facade),
             "thatch": pick("thatch_straw", ("thatch", "straw"), facade),
             "stone": pick("stone_rubble", ("stone", "rock"), facade),
-            "door": _pick(sets, ("plank", "wood", "timber"), facade),
+            "door": pick("Planks039", ("plank", "wood", "timber"), facade),
         }
     }
     return MaterialLibrary(data_dir, facade, style)
@@ -176,6 +185,41 @@ def _module_builders(module_id: str, tiles: dict[str, float]) -> list[PreviewPar
     if module_id == "chimney_stone_stack":
         chimney = build_chimney(0.7, 0.62, 2.6, tiles, "stone")
         return [(chimney, (0.0, 0.0, 0.0))]
+    # ---------------------------------------------------------------- 街市构件
+    if module_id == "roof_slate_curved":
+        roof = build_slate_roof(
+            ROOF_W, ROOF_D, 0.0, 46.0, 0.36, 0.18, tiles, seed=7, curve=0.55
+        )
+        return [(roof, (-ROOF_W * 0.5, -ROOF_D * 0.5, 0.0))]
+    if module_id == "opening_shop_books":
+        opening = Opening(0.30, 2.80, 0.62, 2.52, "window")
+        window = build_shop_window(
+            opening, WALL_THICKNESS, tiles, kind="books", seed=7, rows=3
+        )
+        return [(window, (-1.55, 0.0, 0.0))]
+    if module_id == "opening_shop_goods":
+        opening = Opening(0.28, 2.32, 0.55, 2.22, "window")
+        window = build_shop_window(
+            opening, WALL_THICKNESS, tiles, kind="goods", seed=9, glazed=False, rows=2
+        )
+        return [(window, (-1.30, 0.0, 0.0))]
+    if module_id == "opening_barn_door":
+        return [(build_barn_door(2.4, 3.05, tiles, seed=5), (-1.2, 0.0, 0.0))]
+    if module_id == "wall_stable_bay":
+        opening = Opening(0.32, 2.38, 0.42, 2.76, "window")
+        wall = build_wall_panel(
+            2.7, 3.0, WALL_THICKNESS, round_arch_strips(opening), tiles, glazing=False
+        )
+        base = (-1.35, 0.0, 0.0)
+        return [(wall, base), (build_stable_bay(2.7, 3.0, opening, tiles, seed=5), base)]
+    if module_id == "wall_jetty_skirt":
+        return [(build_jetty_skirt(3.2, 2.8, 0.3, tiles), (-1.6, -1.4, 0.95))]
+    if module_id == "misc_market_props":
+        props = build_street_props(4.0, 0.0, tiles, seed=11, kind="mixed")
+        return [(props, (-2.0, 0.0, 0.0))]
+    if module_id == "misc_water_wheel":
+        wheel = build_water_wheel(tiles, 1.6, 0.55, paddles=20, spokes=8)
+        return [(wheel, (0.0, 0.0, 1.6))]
     # 未知模块退化为标准墙板，保证接口始终有可用预览
     return _wall_builders(tiles)
 

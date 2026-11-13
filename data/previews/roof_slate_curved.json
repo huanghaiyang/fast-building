@@ -1,0 +1,14 @@
+{
+  "module": "roof_slate_curved",
+  "objects": 1,
+  "tris": 9396,
+  "textures": {
+    "facade": "Bricks075A",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "door": "Planks039",
+    "log": "Wood092",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble"
+  }
+}

@@ -31,6 +31,15 @@ DEFAULT_TILES = {
     # 植被：纯色材质，尺寸只影响 UV 密度
     "leaf": 0.5,
     "flower": 0.4,
+    # 中世纪街市构件：麻布、陶器、纸页、铁件、水面、室内暖光
+    "cloth": 0.6,
+    "clay": 0.45,
+    "paper": 0.35,
+    "iron": 0.5,
+    "water": 3.0,
+    "glow": 0.8,
+    # 橱窗玻璃：比普通窗更透，好让陈列品露出来
+    "shop_glass": 2.0,
 }
 
 FALLBACK_COLORS = {
@@ -46,6 +55,14 @@ FALLBACK_COLORS = {
     "char": (0.021, 0.019, 0.017, 1.0),
     "leaf": (0.19, 0.38, 0.12, 1.0),
     "flower": (0.92, 0.89, 0.46, 1.0),
+    # 街市构件：粗麻布、赤陶、书页、熟铁、静水、室内暖光
+    "cloth": (0.55, 0.46, 0.31, 1.0),
+    "clay": (0.52, 0.25, 0.14, 1.0),
+    "paper": (0.84, 0.79, 0.64, 1.0),
+    "iron": (0.09, 0.09, 0.10, 1.0),
+    "water": (0.06, 0.19, 0.21, 0.86),
+    "glow": (1.0, 0.72, 0.38, 1.0),
+    "shop_glass": (0.62, 0.70, 0.72, 0.16),
 }
 
 
@@ -146,8 +163,46 @@ class MaterialLibrary:
             bsdf.inputs["Base Color"].default_value = color
             bsdf.inputs["Roughness"].default_value = 0.8
             bsdf.inputs["Metallic"].default_value = 0.0
+            if slot == "glow":
+                # 暖光槽位：室内灯火。橱窗与门洞里的陈列因此能自己亮起来，
+                # 不用在生成阶段真的放一盏灯（GLB 里灯光也不参与导出）。
+                if "Emission Color" in bsdf.inputs:
+                    bsdf.inputs["Emission Color"].default_value = color
+                if "Emission Strength" in bsdf.inputs:
+                    bsdf.inputs["Emission Strength"].default_value = 1.5
+                bsdf.inputs["Roughness"].default_value = 0.55
+            elif slot in ("water", "shop_glass"):
+                if "Alpha" in bsdf.inputs:
+                    bsdf.inputs["Alpha"].default_value = color[3]
+                bsdf.inputs["Roughness"].default_value = 0.06 if slot == "water" else 0.12
+                if "IOR" in bsdf.inputs:
+                    bsdf.inputs["IOR"].default_value = 1.33
+            elif slot == "iron":
+                bsdf.inputs["Metallic"].default_value = 0.88
+                bsdf.inputs["Roughness"].default_value = 0.42
         mat.use_backface_culling = False
+        # Workbench 缩略图读的是视口颜色（diffuse_color）而不是节点树，纯色槽位必须
+        # 把颜色同步过去，否则模块缩略图里麻布、陶器、暖光都会退成一片灰白。
+        mat.diffuse_color = color
+        mat.roughness = 0.42 if slot == "iron" else 0.85
+        mat.metallic = 0.88 if slot == "iron" else 0.0
+        if slot in ("water", "glass", "shop_glass"):
+            self._enable_alpha(mat)
         return mat
+
+    @staticmethod
+    def _enable_alpha(mat: bpy.types.Material) -> None:
+        """半透明材质：兼容 4.2+ 的 surface_render_method 与旧版 blend_method。"""
+        if hasattr(mat, "surface_render_method"):
+            try:
+                mat.surface_render_method = "BLENDED"
+            except (TypeError, ValueError):
+                pass
+        if hasattr(mat, "blend_method"):
+            try:
+                mat.blend_method = "BLEND"
+            except (TypeError, ValueError):
+                pass
 
     def _create_glass(self) -> bpy.types.Material:
         mat = bpy.data.materials.new("FB_glass")

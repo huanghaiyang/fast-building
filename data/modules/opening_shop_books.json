@@ -1,0 +1,86 @@
+{
+  "id": "opening_shop_books",
+  "name": "书店橱窗（书架陈列）",
+  "version": 1,
+  "category": "opening",
+  "description": "落地橱窗：木框玻璃分六格，柜内三层书架排满彩色书脊，背板是暖光内景，窗台板、小托木与顶挑檐一起出挑 0.26 m。",
+  "tags": [
+    "medieval",
+    "shop",
+    "shopfront",
+    "books",
+    "opening"
+  ],
+  "bbox": {
+    "min": [
+      -0.05,
+      -0.32,
+      0.0
+    ],
+    "max": [
+      2.5,
+      0.24,
+      2.0
+    ]
+  },
+  "geom": {
+    "type": "shop_window",
+    "kind": "books",
+    "rows": 3,
+    "depth": 0.27,
+    "glazed": true
+  },
+  "sockets": [
+    {
+      "name": "wall",
+      "type": "wall_opening",
+      "pos": [
+        1.25,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "shop_glass",
+      "texset": null,
+      "tile_m": 2.0
+    },
+    {
+      "name": "glow",
+      "texset": null,
+      "tile_m": 0.8
+    },
+    {
+      "name": "paper",
+      "texset": null,
+      "tile_m": 0.35
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_opening_shop_books"
+  }
+}

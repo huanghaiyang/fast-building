@@ -110,6 +110,17 @@ export interface Medieval {
   window_boxes: boolean;
   gable_window: boolean;
   door_dressing: boolean;
+  /** 中世纪街市建筑（水磨坊 / 书店 / 杂货铺 / 谷仓 / 马厩） */
+  slate_roof: boolean;
+  roof_curve: number;
+  water_wheel: boolean;
+  shopfront: boolean;
+  shop_board: boolean;
+  barn_door: boolean;
+  stable_bays: boolean;
+  jetty_brackets: boolean;
+  street_props: boolean;
+  ladder: boolean;
 }
 
 export interface Footprint {

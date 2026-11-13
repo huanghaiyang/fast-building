@@ -1,0 +1,14 @@
+{
+  "module": "misc_market_props",
+  "objects": 1,
+  "tris": 6428,
+  "textures": {
+    "facade": "Bricks075A",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "door": "Planks039",
+    "log": "Wood092",
+    "thatch": "thatch_straw",
+    "stone": "stone_rubble"
+  }
+}

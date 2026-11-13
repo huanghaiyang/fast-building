@@ -5,9 +5,9 @@
   "textures": {
     "facade": "Bricks075A",
     "trim": "timber_oak",
-    "roof": "RoofingTiles006",
-    "door": "Planks023A",
-    "log": "log_bark",
+    "roof": "RoofingTiles013A",
+    "door": "Planks039",
+    "log": "Wood092",
     "thatch": "thatch_straw",
     "stone": "stone_rubble"
   }

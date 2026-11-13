@@ -1,0 +1,75 @@
+{
+  "id": "wall_jetty_skirt",
+  "name": "悬挑层托木裙带",
+  "version": 1,
+  "category": "wall",
+  "description": "挑楼一圈的支撑：封边梁压在楼板外缘，托木与斜撑按开间落在下层墙面上，搁栅端头从楼板边探出来，四角另有 45° 收角托木。",
+  "tags": [
+    "medieval",
+    "jetty",
+    "timber",
+    "wall"
+  ],
+  "bbox": {
+    "min": [
+      -0.3,
+      -0.3,
+      -0.65
+    ],
+    "max": [
+      3.5,
+      3.1,
+      0.12
+    ]
+  },
+  "geom": {
+    "type": "jetty_skirt",
+    "width": 3.2,
+    "depth": 2.8,
+    "step": 0.3,
+    "spacing": 0.92
+  },
+  "sockets": [
+    {
+      "name": "floor",
+      "type": "floor_edge",
+      "pos": [
+        1.6,
+        1.4,
+        0
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "log",
+      "texset": "Wood092",
+      "tile_m": 1.2
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_wall_jetty_skirt"
+  }
+}

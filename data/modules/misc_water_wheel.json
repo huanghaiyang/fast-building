@@ -1,0 +1,80 @@
+{
+  "id": "misc_water_wheel",
+  "name": "水磨木轮",
+  "version": 1,
+  "category": "misc",
+  "description": "水磨坊的核心构件：双轮缘加内圈、八对辐条、二十片切线木叶片、轮毂与带铁箍的通长轮轴，轮平面为 XZ、轮轴沿 Y，可直接插进立面。",
+  "tags": [
+    "medieval",
+    "mill",
+    "waterwheel",
+    "machine"
+  ],
+  "bbox": {
+    "min": [
+      -1.62,
+      -0.7,
+      -1.62
+    ],
+    "max": [
+      1.62,
+      0.56,
+      1.62
+    ]
+  },
+  "geom": {
+    "type": "water_wheel",
+    "radius": 1.6,
+    "width": 0.55,
+    "paddles": 20,
+    "spokes": 8
+  },
+  "sockets": [
+    {
+      "name": "axle",
+      "type": "axle",
+      "pos": [
+        0,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "log",
+      "texset": "Wood092",
+      "tile_m": 1.2
+    },
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "iron",
+      "texset": null,
+      "tile_m": 0.5
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_misc_water_wheel"
+  }
+}

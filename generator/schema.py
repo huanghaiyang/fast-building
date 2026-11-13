@@ -81,6 +81,25 @@ class Medieval:
     window_boxes: bool = False
     gable_window: bool = False
     door_dressing: bool = False
+    # 中世纪街市建筑（水磨坊 / 书店 / 杂货铺 / 谷仓 / 马厩）
+    slate_roof: bool = False
+    # 弯坡屋顶的翘檐幅度：0 为平直坡面，1 为檐口两端明显上翘
+    roof_curve: float = 0.55
+    water_wheel: bool = False
+    # 商铺橱窗：下部大窗里排满书架（books）或陶器货架（goods），由样式 shop_kind 决定
+    shopfront: bool = False
+    # 立面横挂招牌板（书店/杂货铺门楣上方）
+    shop_board: bool = False
+    # 谷仓双开木板大门（带铁箍与斜撑）
+    barn_door: bool = False
+    # 马厩：首层正面做成一排圆拱开间，配半截门与草料架
+    stable_bays: bool = False
+    # 悬挑层下的托木与出挑搁栅端头
+    jetty_brackets: bool = False
+    # 沿墙陈设：木桶、木箱、麻袋、藤篮、陶罐、干草垛、书堆与柴堆
+    street_props: bool = False
+    # 靠墙木梯
+    ladder: bool = False
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "Medieval":
@@ -122,6 +141,16 @@ class Medieval:
             window_boxes=bool(data.get("window_boxes", False)),
             gable_window=bool(data.get("gable_window", False)),
             door_dressing=bool(data.get("door_dressing", False)),
+            slate_roof=bool(data.get("slate_roof", False)),
+            roof_curve=min(1.0, max(0.0, float(data.get("roof_curve", 0.55)))),
+            water_wheel=bool(data.get("water_wheel", False)),
+            shopfront=bool(data.get("shopfront", False)),
+            shop_board=bool(data.get("shop_board", False)),
+            barn_door=bool(data.get("barn_door", False)),
+            stable_bays=bool(data.get("stable_bays", False)),
+            jetty_brackets=bool(data.get("jetty_brackets", False)),
+            street_props=bool(data.get("street_props", False)),
+            ladder=bool(data.get("ladder", False)),
         )
 
 

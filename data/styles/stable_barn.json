@@ -1,0 +1,52 @@
+{
+  "id": "stable_barn",
+  "name": "马厩",
+  "description": "长条马厩：正面一排落地圆拱开间，券脚压横木、拱圈上砌券石，每个开间下半截是挡马门、上半截伸出一排草料架并塞着干草；最东端是鞍具房门，屋面上开一扇草料老虎窗，山墙下堆着干草垛与木桶。",
+  "window_w": 0.6,
+  "window_h": 0.62,
+  "sill_h": 1.95,
+  "windows_per_bay": 1,
+  "side_windows": 2,
+  "door": true,
+  "door_w": 1.32,
+  "door_h": 2.36,
+  "balcony": false,
+  "plank_panels": false,
+  "gable_frame": false,
+  "stall_width": 2.06,
+  "stall_sill": 0.42,
+  "stall_height": 2.3,
+  "stall_hay": true,
+  "props_kind": "stable",
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "log": "Wood092",
+    "stone": "stone_rubble",
+    "door": "Planks039",
+    "thatch": "thatch_straw"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "stable_bays": true,
+    "slate_roof": true,
+    "roof_curve": 0.52,
+    "stone_plinth": true,
+    "street_props": true,
+    "dormers": 1,
+    "chimney": false,
+    "ivy": false
+  },
+  "preset": {
+    "width": 14.0,
+    "depth": 6.8,
+    "bays": 5,
+    "floors": 1,
+    "floor_height": 3.7,
+    "roof_pitch": 40,
+    "balcony": false
+  },
+  "door_bay": 4,
+  "dormer_inset": 1.35
+}

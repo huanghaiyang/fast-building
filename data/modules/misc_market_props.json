@@ -1,0 +1,88 @@
+{
+  "id": "misc_market_props",
+  "name": "街市陈设一组",
+  "version": 1,
+  "category": "misc",
+  "description": "沿墙堆的一圈杂物：木桶、木箱、麻袋、藤篮、陶罐、干草垛、书堆与两堆柴火，按种子确定性散布，直接摆在墙脚即可给建筑补上烟火气。",
+  "tags": [
+    "medieval",
+    "props",
+    "market",
+    "clutter"
+  ],
+  "bbox": {
+    "min": [
+      0.0,
+      -0.95,
+      0.0
+    ],
+    "max": [
+      4.0,
+      0.0,
+      1.2
+    ]
+  },
+  "geom": {
+    "type": "props_cluster",
+    "width": 4.0,
+    "kind": "mixed"
+  },
+  "sockets": [
+    {
+      "name": "base",
+      "type": "ground",
+      "pos": [
+        2.0,
+        -0.4,
+        0
+      ],
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "log",
+      "texset": "Wood092",
+      "tile_m": 1.2
+    },
+    {
+      "name": "cloth",
+      "texset": null,
+      "tile_m": 0.6
+    },
+    {
+      "name": "clay",
+      "texset": null,
+      "tile_m": 0.45
+    },
+    {
+      "name": "thatch",
+      "texset": "thatch_straw",
+      "tile_m": 1.5
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_misc_market_props"
+  }
+}

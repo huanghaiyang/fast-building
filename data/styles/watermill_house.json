@@ -1,0 +1,53 @@
+{
+  "id": "watermill_house",
+  "name": "水磨坊",
+  "description": "半木构水磨坊：厚重的板岩石瓦弯坡顶、粗木脊梁探出山墙，毛石勒脚直接坐在溪岸上，正面右侧挂一面巨大的木水轮，轮下是石砌轮坑与水面，送水木槽从墙里伸到轮顶；墙根堆着木桶、麻袋与柴堆。",
+  "window_w": 0.78,
+  "window_h": 1.02,
+  "sill_h": 1.32,
+  "windows_per_bay": 1,
+  "door": true,
+  "door_w": 1.12,
+  "door_h": 2.25,
+  "balcony": false,
+  "plank_panels": false,
+  "gable_frame": false,
+  "props_kind": "mixed",
+  "wheel_radius": 1.95,
+  "wheel_width": 0.62,
+  "wheel_axle_ratio": 0.82,
+  "wheel_x": 0.75,
+  "wheel_paddles": 22,
+  "wheel_spokes": 8,
+  "wheel_sluice_side": -1.0,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "log": "Wood092",
+    "stone": "stone_rubble",
+    "door": "Planks039",
+    "thatch": "thatch_straw"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "slate_roof": true,
+    "roof_curve": 0.58,
+    "stone_plinth": true,
+    "water_wheel": true,
+    "street_props": true,
+    "dormers": 0,
+    "chimney": false,
+    "ivy": false
+  },
+  "preset": {
+    "width": 8.6,
+    "depth": 6.6,
+    "bays": 3,
+    "floors": 1,
+    "floor_height": 4.0,
+    "roof_pitch": 46,
+    "balcony": false
+  },
+  "door_bay": 0
+}

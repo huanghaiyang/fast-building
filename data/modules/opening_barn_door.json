@@ -1,0 +1,83 @@
+{
+  "id": "opening_barn_door",
+  "name": "谷仓双开大门",
+  "version": 1,
+  "category": "opening",
+  "description": "通高双开仓门：每扇竖拼木板、三道横档加 Z 形斜撑，两路熟铁箍横贯双扇，门框立柱、过梁、门轴吊耳与石门槛齐全。",
+  "tags": [
+    "medieval",
+    "barn",
+    "door",
+    "opening"
+  ],
+  "bbox": {
+    "min": [
+      -0.2,
+      -0.46,
+      0.0
+    ],
+    "max": [
+      2.6,
+      0.05,
+      3.4
+    ]
+  },
+  "geom": {
+    "type": "barn_door",
+    "span": 2.4,
+    "height": 3.05
+  },
+  "sockets": [
+    {
+      "name": "wall",
+      "type": "wall_opening",
+      "pos": [
+        1.2,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "log",
+      "texset": "Wood092",
+      "tile_m": 1.2
+    },
+    {
+      "name": "iron",
+      "texset": null,
+      "tile_m": 0.5
+    },
+    {
+      "name": "stone",
+      "texset": "stone_rubble",
+      "tile_m": 1.6
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_opening_barn_door"
+  }
+}

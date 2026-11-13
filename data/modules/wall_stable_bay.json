@@ -1,0 +1,85 @@
+{
+  "id": "wall_stable_bay",
+  "name": "马厩圆拱开间",
+  "version": 1,
+  "category": "wall",
+  "description": "一个马厩开间的完整立面：墙板挖出落地圆拱洞，券石沿券线排一圈，起拱处压横木，下半截挡马门带铁合页，上半截草料架塞满干草，洞内压暗背板读出进深。",
+  "tags": [
+    "medieval",
+    "stable",
+    "arch",
+    "wall"
+  ],
+  "bbox": {
+    "min": [
+      -0.15,
+      -0.42,
+      0.0
+    ],
+    "max": [
+      2.85,
+      0.24,
+      3.2
+    ]
+  },
+  "geom": {
+    "type": "stable_bay",
+    "span": 2.7,
+    "height": 3.0,
+    "arch_width": 2.05,
+    "arch_height": 2.35
+  },
+  "sockets": [
+    {
+      "name": "base",
+      "type": "wall_base",
+      "pos": [
+        1.35,
+        0,
+        0
+      ],
+      "normal": [
+        0,
+        1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "slots": [
+    {
+      "name": "facade",
+      "texset": "plaster_cream",
+      "tile_m": 2.0
+    },
+    {
+      "name": "trim",
+      "texset": "timber_oak",
+      "tile_m": 1.5
+    },
+    {
+      "name": "stone",
+      "texset": "stone_rubble",
+      "tile_m": 1.6
+    },
+    {
+      "name": "thatch",
+      "texset": "thatch_straw",
+      "tile_m": 1.5
+    }
+  ],
+  "lod": [
+    {
+      "level": 0,
+      "ratio": 1.0
+    }
+  ],
+  "source": {
+    "blend": "generated",
+    "collection": "MOD_wall_stable_bay"
+  }
+}

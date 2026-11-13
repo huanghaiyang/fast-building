@@ -73,6 +73,17 @@ class MedievalSpec(BaseModel):
     round_arch: bool = False
     wall_ruin: bool = False
     collapsed_beams: bool = False
+    # 中世纪街市建筑（水磨坊 / 书店 / 杂货铺 / 谷仓 / 马厩）
+    slate_roof: bool = False
+    roof_curve: float = Field(0.55, ge=0.0, le=1.0)
+    water_wheel: bool = False
+    shopfront: bool = False
+    shop_board: bool = False
+    barn_door: bool = False
+    stable_bays: bool = False
+    jetty_brackets: bool = False
+    street_props: bool = False
+    ladder: bool = False
 
 
 class Footprint(BaseModel):

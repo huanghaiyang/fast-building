@@ -1,0 +1,62 @@
+{
+  "id": "village_bookshop",
+  "name": "乡村书店",
+  "description": "两层的半木构书店：下层整面落地玻璃橱窗里排满书架，暖黄灯火从窗口透出来；门楣上挂横招牌，屋顶是深色板岩石瓦、右侧开一扇老虎窗，山墙木构一直收进脊梁，门口堆着书与木箱。",
+  "window_w": 0.92,
+  "window_h": 1.15,
+  "sill_h": 1.45,
+  "windows_per_bay": 1,
+  "door": true,
+  "door_w": 1.05,
+  "door_h": 2.2,
+  "balcony": false,
+  "plank_panels": true,
+  "gable_frame": false,
+  "shop_bays": [
+    0
+  ],
+  "shop_kind": "books",
+  "shop_glazed": true,
+  "shop_rows": 3,
+  "shop_window_w": 2.45,
+  "shop_window_sill": 0.66,
+  "shop_window_h": 1.92,
+  "props_kind": "books",
+  "board_w": 2.3,
+  "board_h": 0.6,
+  "board_z": 2.92,
+  "standing_sign": false,
+  "ladder_x": 3.3,
+  "palette": {
+    "facade": "plaster_cream",
+    "trim": "timber_oak",
+    "roof": "RoofingTiles013A",
+    "log": "Wood092",
+    "stone": "stone_rubble",
+    "door": "Planks039",
+    "thatch": "thatch_straw"
+  },
+  "medieval": {
+    "timber_frame": true,
+    "slate_roof": true,
+    "roof_curve": 0.52,
+    "shopfront": true,
+    "shop_board": true,
+    "street_props": true,
+    "ladder": true,
+    "stone_plinth": true,
+    "dormers": 1,
+    "chimney": false,
+    "ivy": false
+  },
+  "preset": {
+    "width": 6.6,
+    "depth": 6.2,
+    "bays": 2,
+    "floors": 2,
+    "floor_height": 3.05,
+    "roof_pitch": 50,
+    "balcony": false
+  },
+  "dormer_inset": 1.45
+}
