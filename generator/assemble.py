@@ -489,11 +489,35 @@ def _add_opening_leaves(
 ) -> None:
     """为门 / 窗洞口补可独立开合的扇体。
 
-    物体原点放在合页边（洞口一侧、墙厚中线），几何向 +X 展开，
-    因此 GLB 里绕节点局部竖轴旋转即为开合；extras 写入驱动参数供前端读取。
+    规则：
+    - 门：单扇，合页在洞口一侧，向室外开；
+    - 窄窗（< 0.98 m）：单扇，只做竖梃，不出现「田字窗单侧开」；
+    - 宽窗：对开双扇（左右各半），两扇都从外侧合页向室外打开。
+
+    合页放在墙体外表面（局部 -Y），保证旋转方向只会向室外，不会转进室内；
+    extras 写入 fb_kind / fb_open_deg / fb_open_sign 供前端驱动。
     """
     cos_r = math.cos(wall_rotation)
     sin_r = math.sin(wall_rotation)
+
+    def place(builder, name: str, hinge_x: float, kind: str, open_deg: float, sign: float):
+        # 合页贴在墙体外表面，而不是墙厚中线，避免门扇扫进墙体/室内
+        hinge_y = -0.03
+        world_x = wall_location[0] + hinge_x * cos_r - hinge_y * sin_r
+        world_y = wall_location[1] + hinge_x * sin_r + hinge_y * cos_r
+        leaf = create_object(
+            builder,
+            name,
+            mat_lib,
+            collection,
+            (world_x, world_y, wall_location[2] + opening.z0),
+            wall_rotation,
+        )
+        leaf["fb_kind"] = kind
+        leaf["fb_open_deg"] = open_deg
+        leaf["fb_open_sign"] = sign
+        objects.append(leaf)
+
     for index, opening in enumerate(openings):
         if opening.kind not in ("door", "window") or opening.kind in skip_kinds:
             continue
@@ -503,28 +527,44 @@ def _add_opening_leaves(
             continue
 
         if opening.kind == "door":
-            builder = build_door_leaf(width, height, tiles)
+            place(
+                build_door_leaf(width, height, tiles),
+                f"door_{side}_f{floor}_{index}",
+                opening.x0,
+                "door",
+                95.0,
+                -1.0,
+            )
+            continue
+
+        if width >= 0.98:
+            # 对开双扇：左扇 + 右扇（镜像），合起来是田字四格
+            leaf_w = width * 0.5 - 0.012
+            place(
+                build_window_sash(leaf_w, height, tiles, mirror=False, half=True),
+                f"window_{side}_f{floor}_{index}_a",
+                opening.x0,
+                "window",
+                32.0,
+                -1.0,
+            )
+            place(
+                build_window_sash(leaf_w, height, tiles, mirror=True, half=True),
+                f"window_{side}_f{floor}_{index}_b",
+                opening.x1,
+                "window",
+                32.0,
+                1.0,
+            )
         else:
-            builder = build_window_sash(width, height, tiles)
-
-        hinge_x = opening.x0
-        hinge_y = WALL_THICKNESS * 0.5
-        world_x = wall_location[0] + hinge_x * cos_r - hinge_y * sin_r
-        world_y = wall_location[1] + hinge_x * sin_r + hinge_y * cos_r
-        world_z = wall_location[2] + opening.z0
-
-        leaf = create_object(
-            builder,
-            f"{opening.kind}_{side}_f{floor}_{index}",
-            mat_lib,
-            collection,
-            (world_x, world_y, world_z),
-            wall_rotation,
-        )
-        leaf["fb_kind"] = opening.kind
-        leaf["fb_open_deg"] = 95.0 if opening.kind == "door" else 32.0
-        leaf["fb_open_sign"] = -1.0
-        objects.append(leaf)
+            place(
+                build_window_sash(width, height, tiles, half=False),
+                f"window_{side}_f{floor}_{index}",
+                opening.x0,
+                "window",
+                32.0,
+                -1.0,
+            )
 
 
 def _ground_door(spec: Spec, style: dict) -> tuple[float, float] | None:

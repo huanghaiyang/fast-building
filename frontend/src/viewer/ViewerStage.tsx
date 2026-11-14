@@ -11,13 +11,16 @@ import {
   ViewerStatus,
 } from "./BuildingViewer";
 import { StudioPanel } from "../panels/StudioPanel";
+import type { Footprint } from "../api/client";
 
 interface Props {
   url: string | null;
+  /** 非空时显示纯前端即时体量预览（不经过 Blender）。 */
+  massingSpec: Footprint | null;
 }
 
 /** 3D 预览舞台：包含画布、视角与环境工具条、模型统计浮层。 */
-export function ViewerStage({ url }: Props) {
+export function ViewerStage({ url, massingSpec }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<BuildingViewer | null>(null);
   const [viewer, setViewer] = useState<BuildingViewer | null>(null);
@@ -81,6 +84,26 @@ export function ViewerStage({ url }: Props) {
       },
     );
   }, [url]);
+
+  // 纯前端即时体量预览：拖参数时即时重建，无需等待 Blender
+  useEffect(() => {
+    const instance = viewerRef.current;
+    if (!instance) return;
+    if (!massingSpec) {
+      instance.clearMassing();
+      return;
+    }
+    // 轻微防抖：滑杆连续变化时只重建最后一帧体量
+    const timer = window.setTimeout(() => {
+      const next = instance.showMassing(massingSpec);
+      setStats(next);
+      setStatus("ready");
+      setMessage("即时预览：纯前端体量（点「生成建筑」得到 Blender 细节模型）");
+      setNodeList([]);
+      setSelectedNode(null);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [massingSpec]);
 
   useEffect(() => {
     viewerRef.current?.setAutoRotate(autoRotate && !locked);

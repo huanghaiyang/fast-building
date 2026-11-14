@@ -21,7 +21,9 @@ import {
   patchMaterialFX,
 } from "./procedural";
 import { createWaterMaterial, createWaterUniforms, isWaterMaterial } from "./water";
+import { buildMassing, disposeMassing } from "./massing";
 import { subdivideGeometry } from "./subdivide";
+import type { Footprint } from "../api/client";
 
 export interface ViewerStats {
   meshes: number;
@@ -313,6 +315,7 @@ export class BuildingViewer {
   private skyTexture: THREE.Texture | null = null;
 
   private model: THREE.Object3D | null = null;
+  private massing: THREE.Group | null = null;
   private readonly originalGeometries = new Map<THREE.Mesh, THREE.BufferGeometry>();
   private animationId = 0;
   private disposed = false;
@@ -377,14 +380,14 @@ export class BuildingViewer {
     diffuseWrap: 0.4,
   };
   private roughnessSettings: RoughnessSettings = { enabled: false, scale: 6, strength: 0.6 };
-  private wetFlow = 0.6;
+  private wetFlow = 0.8;
 
   private readonly rain = new RainSystem();
   private readonly rainCenter = new THREE.Vector3(0, 0, 0);
   private baseFogNear = 80;
   private baseFogFar = 220;
   private readonly clock = new THREE.Clock();
-  private wetness = 0;
+  private wetness = 0.28;
   private rainLevel = 0;
   private baseGroundColor = new THREE.Color("#0f151c");
   private baseGroundRoughness = 0.96;
@@ -403,12 +406,15 @@ export class BuildingViewer {
     id: string;
     node: THREE.Object3D;
     kind: "door" | "window";
-    baseRotationY: number;
+    /** 关闭状态的四元数（GLTFLoader 不走 Euler 回调，必须存四元数）。 */
+    baseQuaternion: THREE.Quaternion;
     openDeg: number;
     sign: number;
     progress: number;
     target: number;
   }> = [];
+  private readonly hingeAxis = new THREE.Vector3(0, 1, 0);
+  private readonly hingeQuat = new THREE.Quaternion();
 
   // ---------------------------------------------------------------- 昼夜循环
   onDayTimeChange: ((hour: number, sun: SunSettings) => void) | null = null;
@@ -1079,8 +1085,76 @@ export class BuildingViewer {
     };
   }
 
+  /**
+   * 计算门窗的外开旋转符号。
+   *
+   * 不同朝向墙体的节点旋转不同，固定符号会出现"有的墙往里开"。
+   * 这里用几何实际朝向判断：取门扇法线（glTF 局部 Z）与建筑中心比较得到室外方向，
+   * 再用「绕 Y 轴正向旋转时自由边的前进方向」点乘室外方向，决定旋转正负。
+   */
+  private outwardSign(node: THREE.Object3D, center: THREE.Vector3): number {
+    const quat = node.getWorldQuaternion(new THREE.Quaternion());
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
+    const extension = new THREE.Vector3(1, 0, 0).applyQuaternion(quat);
+    const hinge = node.getWorldPosition(new THREE.Vector3());
+
+    // 室外方向：墙法线中指向远离建筑中心的一侧
+    const towardOutside = hinge.clone().sub(center);
+    towardOutside.y = 0;
+    if (towardOutside.lengthSq() < 1e-6) towardOutside.set(0, 0, 1);
+    const normalFlat = normal.clone();
+    normalFlat.y = 0;
+    const outward = normalFlat.dot(towardOutside) >= 0 ? normalFlat : normalFlat.negate();
+    outward.normalize();
+
+    // 绕 +Y 旋转时，自由边（局部 +X）的速度方向 = Y × extension
+    const tangent = new THREE.Vector3(extension.z, 0, -extension.x);
+    return tangent.dot(outward) >= 0 ? 1 : -1;
+  }
+  // ================================================================ 纯前端体量预览
+  /** 用参数即时拼出体量示意（不经过 Blender），返回统计信息。 */
+  showMassing(spec: Footprint): ViewerStats {
+    this.clearModel();
+    this.clearMassing();
+    const { group, stats } = buildMassing(spec);
+    this.massing = group;
+    this.scene.add(group);
+
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    // 以包围球半径取景并留 15% 余量，避免屋顶/基座被裁掉
+    const radius = Math.max(size.length() * 0.5, 2);
+    const distance = (radius / Math.sin((this.camera.fov * Math.PI) / 360)) * 1.15;
+    this.viewDistance = distance;
+    this.modelBox.copy(box);
+
+    this.controls.target.copy(center);
+    this.camera.position
+      .copy(new THREE.Vector3(0.62, 0.4, 0.95).normalize().multiplyScalar(distance))
+      .add(center);
+    this.controls.update();
+    this.onNodePick?.(null);
+
+    return {
+      meshes: stats.meshes,
+      triangles: stats.triangles,
+      textures: 0,
+      size: [Number(size.x.toFixed(2)), Number(size.y.toFixed(2)), Number(size.z.toFixed(2))],
+    };
+  }
+
+  /** 清除体量示意模型。 */
+  clearMassing(): void {
+    if (!this.massing) return;
+    this.scene.remove(this.massing);
+    disposeMassing(this.massing);
+    this.massing = null;
+  }
+
   private clearModel(): void {
     this.selectNode(null);
+    this.clearMassing();
     this.hoverNode(null);
     this.nodes.clear();
     this.voxel.clear();
@@ -1571,7 +1645,7 @@ export class BuildingViewer {
     this.groundMaterial.color
       .copy(this.baseGroundColor)
       .multiplyScalar((1 - this.wetness * 0.32) * this.diurnalLight)
-      .lerp(DIURNAL.snowGround, this.snowCover * 0.92);
+      .lerp(DIURNAL.snowGround, this.snowCover * 0.8);
     this.groundMaterial.roughness = THREE.MathUtils.lerp(
       Math.max(0.08, this.baseGroundRoughness - this.wetness * 0.55),
       0.95,
@@ -1665,8 +1739,11 @@ export class BuildingViewer {
     for (const item of this.openables) {
       if (Math.abs(item.target - item.progress) < 0.0005) continue;
       item.progress += (item.target - item.progress) * step;
-      item.node.rotation.y =
-        item.baseRotationY + item.sign * THREE.MathUtils.degToRad(item.openDeg) * item.progress;
+      const angle = item.sign * THREE.MathUtils.degToRad(item.openDeg) * item.progress;
+      // 局部竖轴旋转叠加在关闭朝向上：不受 GLTFLoader Euler/四元数不同步影响
+      item.node.quaternion
+        .copy(item.baseQuaternion)
+        .multiply(this.hingeQuat.setFromAxisAngle(this.hingeAxis, angle));
     }
   }
 
@@ -1680,6 +1757,10 @@ export class BuildingViewer {
 
     let waterUsed = false;
     const waterMaterial = createWaterMaterial(this.waterUniforms);
+    // 门窗开向：以模型中心为参照，统一算成"向外开"
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    const center = bounds.getCenter(new THREE.Vector3());
 
     model.traverse((child) => {
       const mesh = child as THREE.Mesh;
@@ -1713,13 +1794,14 @@ export class BuildingViewer {
       const kind = child.userData?.fb_kind as string | undefined;
       if ((kind === "door" || kind === "window") && !child.userData.fbOpenableId) {
         const id = `openable-${this.openables.length}`;
+        const sign = this.outwardSign(child, center);
         this.openables.push({
           id,
           node: child,
           kind: kind as "door" | "window",
-          baseRotationY: child.rotation.y,
+          baseQuaternion: child.quaternion.clone(),
           openDeg: Number(child.userData.fb_open_deg ?? (kind === "door" ? 95 : 32)),
-          sign: Number(child.userData.fb_open_sign ?? -1),
+          sign,
           progress: 0,
           target: 0,
         });

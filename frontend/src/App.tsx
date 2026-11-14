@@ -97,6 +97,8 @@ export default function App() {
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 纯前端即时体量预览：勾选后调参数立即出体量，不必等 Blender
+  const [quickPreview, setQuickPreview] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const pollRef = useRef<number | null>(null);
 
@@ -340,7 +342,7 @@ export default function App() {
           <ModuleLibrary modules={modules} />
         </aside>
 
-        <ViewerStage url={glbUrl} />
+        <ViewerStage url={glbUrl} massingSpec={quickPreview ? form : null} />
 
         <aside className="panel right">
           <ControlPanel
@@ -359,6 +361,8 @@ export default function App() {
             onGenerate={handleGenerate}
             onCancel={handleCancel}
             onOpenUpload={() => setUploadOpen(true)}
+            quickPreview={quickPreview}
+            onQuickPreviewChange={setQuickPreview}
           />
         </aside>
       </main>

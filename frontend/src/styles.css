@@ -1974,3 +1974,25 @@ input[type="range"]::-webkit-slider-thumb {
     max-width: 70%;
   }
 }
+
+/* 中世纪构件：互斥项置灰 */
+.medieval-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.medieval-fieldset[disabled] .checkbox,
+.medieval-fieldset[disabled] .field,
+.medieval-fieldset[disabled] .hint {
+  opacity: 0.55;
+}
+.checkbox input:disabled + span {
+  opacity: 0.45;
+}
+.checkbox:has(input:disabled) {
+  cursor: not-allowed;
+}
+.field input[type="range"]:disabled {
+  opacity: 0.45;
+}

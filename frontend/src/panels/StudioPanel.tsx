@@ -289,7 +289,7 @@ export function StudioPanel({ open, onClose, viewer, nodes, selectedNode, onSele
     viewer?.setSurface(surface);
   }, [viewer, surface]);
 
-  const [rain, setRain] = useState({ intensity: 0, wetness: 0.35, flow: 0.6 });
+  const [rain, setRain] = useState({ intensity: 0, wetness: 0.3, flow: 0.8 });
   useEffect(() => {
     viewer?.setRain(rain.intensity);
     viewer?.setWetness(rain.wetness);

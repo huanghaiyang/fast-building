@@ -14,6 +14,9 @@ interface Props {
   onGenerate: () => void;
   onCancel: () => void;
   onOpenUpload: () => void;
+  /** 纯前端即时体量预览开关。 */
+  quickPreview: boolean;
+  onQuickPreviewChange: (value: boolean) => void;
 }
 
 interface SliderProps {
@@ -63,7 +66,59 @@ export function ControlPanel(props: Props) {
     onGenerate,
     onCancel,
     onOpenUpload,
+    quickPreview,
+    onQuickPreviewChange,
   } = props;
+
+  /** 中世纪构件互斥规则：开启一项时自动关闭/置灰冲突项。 */
+  const applyMedieval = (patch: Partial<Medieval>) => {
+    const next: Partial<Medieval> = { ...patch };
+    const on = (key: keyof Medieval) => patch[key] === true;
+
+    if (on("thatch_roof")) next.slate_roof = false;
+    if (on("slate_roof")) next.thatch_roof = false;
+    if (on("log_walls")) next.timber_frame = false;
+    if (on("timber_frame")) next.log_walls = false;
+    if (on("arch_openings")) next.round_arch = false;
+    if (on("round_arch")) next.arch_openings = false;
+
+    // 街市立面的三种开间形态互斥（橱窗 / 马厩 / 仓门）
+    const shopKeys = ["shopfront", "stable_bays", "barn_door"] as const;
+    for (const key of shopKeys) {
+      if (!on(key)) continue;
+      for (const other of shopKeys) if (other !== key) next[other] = false;
+    }
+
+    // 瞭望棚替换整栋屋顶，与坡屋顶相关构件互斥
+    if (on("lookout")) {
+      next.dormers = 0;
+      next.crenellation = false;
+      next.bellcote = false;
+      next.ruined_roof = false;
+      next.bell_tower = false;
+      next.nave_roof = false;
+      next.thatch_roof = false;
+      next.slate_roof = false;
+    }
+
+    // 整栋塌毁：清空全部依赖正常墙身/屋顶的构件
+    if (on("collapsed")) {
+      const clear: Array<keyof Medieval> = [
+        "timber_frame", "log_walls", "thatch_roof", "slate_roof", "crenellation",
+        "burnt", "water_wheel", "shopfront", "stable_bays", "barn_door", "shop_board",
+        "jetty_brackets", "street_props", "ladder", "lookout", "hoarding",
+        "stepped_base", "gallery", "ridge_cap", "shingle_band", "porch", "ivy", "chimney",
+      ];
+      for (const key of clear) (next as Record<string, unknown>)[key] = false;
+      next.dormers = 0;
+    }
+
+    onMedievalChange(next);
+  };
+
+  const medieval = form.medieval;
+  const gableRoof = form.roof === "gable";
+  const flatRoof = form.roof === "flat";
 
   const stats = job?.result?.stats;
   const progress = Math.round((job?.progress ?? 0) * 100);
@@ -273,6 +328,7 @@ export function ControlPanel(props: Props) {
         </div>
       </section>
 
+      <fieldset className="medieval-fieldset" disabled={medieval.collapsed}>
       <details className="group collapsible">
         <summary>
           <h3>中世纪构件</h3>
@@ -283,7 +339,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.timber_frame}
-              onChange={(event) => onMedievalChange({ timber_frame: event.target.checked })}
+              disabled={medieval.collapsed || medieval.log_walls}
+              onChange={(event) => applyMedieval({ timber_frame: event.target.checked })}
             />
             <span>木筋墙</span>
           </label>
@@ -291,7 +348,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.arch_openings}
-              onChange={(event) => onMedievalChange({ arch_openings: event.target.checked })}
+              disabled={medieval.collapsed || medieval.round_arch}
+              onChange={(event) => applyMedieval({ arch_openings: event.target.checked })}
             />
             <span>尖拱门窗</span>
           </label>
@@ -299,7 +357,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.jetty}
-              onChange={(event) => onMedievalChange({ jetty: event.target.checked })}
+              onChange={(event) => applyMedieval({ jetty: event.target.checked })}
             />
             <span>悬挑楼层</span>
           </label>
@@ -307,7 +365,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.crenellation}
-              onChange={(event) => onMedievalChange({ crenellation: event.target.checked })}
+              disabled={!flatRoof || medieval.collapsed}
+              onChange={(event) => applyMedieval({ crenellation: event.target.checked })}
             />
             <span>垛口女儿墙</span>
           </label>
@@ -315,7 +374,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.chimney}
-              onChange={(event) => onMedievalChange({ chimney: event.target.checked })}
+              onChange={(event) => applyMedieval({ chimney: event.target.checked })}
             />
             <span>砖石烟囱</span>
           </label>
@@ -323,7 +382,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.burnt}
-              onChange={(event) => onMedievalChange({ burnt: event.target.checked })}
+              onChange={(event) => applyMedieval({ burnt: event.target.checked })}
             />
             <span>烧毁木构</span>
           </label>
@@ -334,7 +393,7 @@ export function ControlPanel(props: Props) {
           min={0}
           max={2}
           step={1}
-          onChange={(value) => onMedievalChange({ dormers: value })}
+          onChange={(value) => applyMedieval({ dormers: value })}
         />
         <p className="hint">垛口女儿墙仅平屋顶生效，老虎窗仅双坡生效；烧毁木构会把墙面烧出炭斑，并把屋顶换成只剩一坡茅草、一坡石瓦的残架。</p>
       </details>
@@ -349,7 +408,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.buttresses}
-              onChange={(event) => onMedievalChange({ buttresses: event.target.checked })}
+              onChange={(event) => applyMedieval({ buttresses: event.target.checked })}
             />
             <span>石扶壁</span>
           </label>
@@ -357,7 +416,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.bellcote}
-              onChange={(event) => onMedievalChange({ bellcote: event.target.checked })}
+              disabled={!gableRoof || medieval.collapsed}
+              onChange={(event) => applyMedieval({ bellcote: event.target.checked })}
             />
             <span>屋脊石钟塔</span>
           </label>
@@ -365,7 +425,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.ruined_roof}
-              onChange={(event) => onMedievalChange({ ruined_roof: event.target.checked })}
+              disabled={!gableRoof || medieval.collapsed}
+              onChange={(event) => applyMedieval({ ruined_roof: event.target.checked })}
             />
             <span>破损屋顶</span>
           </label>
@@ -373,7 +434,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.bell_tower}
-              onChange={(event) => onMedievalChange({ bell_tower: event.target.checked })}
+              disabled={!gableRoof || medieval.collapsed}
+              onChange={(event) => applyMedieval({ bell_tower: event.target.checked })}
             />
             <span>方形钟塔</span>
           </label>
@@ -381,7 +443,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.nave_roof}
-              onChange={(event) => onMedievalChange({ nave_roof: event.target.checked })}
+              disabled={!gableRoof || medieval.collapsed}
+              onChange={(event) => applyMedieval({ nave_roof: event.target.checked })}
             />
             <span>纵向残顶</span>
           </label>
@@ -389,7 +452,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.collapsed}
-              onChange={(event) => onMedievalChange({ collapsed: event.target.checked })}
+              onChange={(event) => applyMedieval({ collapsed: event.target.checked })}
             />
             <span>整栋塌毁</span>
           </label>
@@ -409,7 +472,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.stepped_base}
-              onChange={(event) => onMedievalChange({ stepped_base: event.target.checked })}
+              onChange={(event) => applyMedieval({ stepped_base: event.target.checked })}
             />
             <span>阶梯石台基</span>
           </label>
@@ -417,7 +480,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.hoarding}
-              onChange={(event) => onMedievalChange({ hoarding: event.target.checked })}
+              onChange={(event) => applyMedieval({ hoarding: event.target.checked })}
             />
             <span>塔顶木挑廊</span>
           </label>
@@ -425,7 +488,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.lookout}
-              onChange={(event) => onMedievalChange({ lookout: event.target.checked })}
+              onChange={(event) => applyMedieval({ lookout: event.target.checked })}
             />
             <span>木构瞭望棚</span>
           </label>
@@ -445,7 +508,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.gallery}
-              onChange={(event) => onMedievalChange({ gallery: event.target.checked })}
+              onChange={(event) => applyMedieval({ gallery: event.target.checked })}
             />
             <span>环绕木廊</span>
           </label>
@@ -453,7 +516,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.shop_sign}
-              onChange={(event) => onMedievalChange({ shop_sign: event.target.checked })}
+              onChange={(event) => applyMedieval({ shop_sign: event.target.checked })}
             />
             <span>悬挑店招</span>
           </label>
@@ -461,7 +524,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.ridge_cap}
-              onChange={(event) => onMedievalChange({ ridge_cap: event.target.checked })}
+              onChange={(event) => applyMedieval({ ridge_cap: event.target.checked })}
             />
             <span>脊梁与封檐板</span>
           </label>
@@ -481,7 +544,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.log_walls}
-              onChange={(event) => onMedievalChange({ log_walls: event.target.checked })}
+              disabled={medieval.collapsed || medieval.timber_frame}
+              onChange={(event) => applyMedieval({ log_walls: event.target.checked })}
             />
             <span>圆木叠砌墙</span>
           </label>
@@ -489,7 +553,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.thatch_roof}
-              onChange={(event) => onMedievalChange({ thatch_roof: event.target.checked })}
+              disabled={!gableRoof || medieval.collapsed || medieval.slate_roof}
+              onChange={(event) => applyMedieval({ thatch_roof: event.target.checked })}
             />
             <span>厚茅草屋顶</span>
           </label>
@@ -497,7 +562,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.shingle_band}
-              onChange={(event) => onMedievalChange({ shingle_band: event.target.checked })}
+              onChange={(event) => applyMedieval({ shingle_band: event.target.checked })}
             />
             <span>石瓦腰带</span>
           </label>
@@ -505,7 +570,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.stone_plinth}
-              onChange={(event) => onMedievalChange({ stone_plinth: event.target.checked })}
+              onChange={(event) => applyMedieval({ stone_plinth: event.target.checked })}
             />
             <span>毛石勒脚</span>
           </label>
@@ -513,7 +578,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.porch}
-              onChange={(event) => onMedievalChange({ porch: event.target.checked })}
+              onChange={(event) => applyMedieval({ porch: event.target.checked })}
             />
             <span>茅草门廊</span>
           </label>
@@ -521,7 +586,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.ivy}
-              onChange={(event) => onMedievalChange({ ivy: event.target.checked })}
+              onChange={(event) => applyMedieval({ ivy: event.target.checked })}
             />
             <span>常春藤与花丛</span>
           </label>
@@ -535,7 +600,7 @@ export function ControlPanel(props: Props) {
               max={100}
               step={5}
               unit="%"
-              onChange={(value) => onMedievalChange({ ivy_coverage: value / 100 })}
+              onChange={(value) => applyMedieval({ ivy_coverage: value / 100 })}
             />
             <Slider
               label="藤蔓生长高度"
@@ -544,7 +609,7 @@ export function ControlPanel(props: Props) {
               max={100}
               step={5}
               unit="%"
-              onChange={(value) => onMedievalChange({ ivy_height: value / 100 })}
+              onChange={(value) => applyMedieval({ ivy_height: value / 100 })}
             />
             <p className="hint">覆盖度决定每面墙爬几股藤，高度按墙高百分比计算。</p>
           </>
@@ -556,7 +621,7 @@ export function ControlPanel(props: Props) {
             min={1}
             max={4}
             step={1}
-            onChange={(value) => onMedievalChange({ chimney_count: value })}
+            onChange={(value) => applyMedieval({ chimney_count: value })}
           />
         )}
         <p className="hint">
@@ -574,7 +639,8 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.round_arch}
-              onChange={(event) => onMedievalChange({ round_arch: event.target.checked })}
+              disabled={medieval.collapsed || medieval.arch_openings}
+              onChange={(event) => applyMedieval({ round_arch: event.target.checked })}
             />
             <span>半圆拱券</span>
           </label>
@@ -582,7 +648,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.wall_ruin}
-              onChange={(event) => onMedievalChange({ wall_ruin: event.target.checked })}
+              onChange={(event) => applyMedieval({ wall_ruin: event.target.checked })}
             />
             <span>残墙断口</span>
           </label>
@@ -590,7 +656,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.collapsed_beams}
-              onChange={(event) => onMedievalChange({ collapsed_beams: event.target.checked })}
+              onChange={(event) => applyMedieval({ collapsed_beams: event.target.checked })}
             />
             <span>露明梁架与倒板</span>
           </label>
@@ -610,7 +676,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.rose_window}
-              onChange={(event) => onMedievalChange({ rose_window: event.target.checked })}
+              onChange={(event) => applyMedieval({ rose_window: event.target.checked })}
             />
             <span>山墙玫瑰窗</span>
           </label>
@@ -618,7 +684,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.pinnacles}
-              onChange={(event) => onMedievalChange({ pinnacles: event.target.checked })}
+              onChange={(event) => applyMedieval({ pinnacles: event.target.checked })}
             />
             <span>扶壁小尖塔</span>
           </label>
@@ -638,7 +704,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.window_boxes}
-              onChange={(event) => onMedievalChange({ window_boxes: event.target.checked })}
+              onChange={(event) => applyMedieval({ window_boxes: event.target.checked })}
             />
             <span>窗台花箱</span>
           </label>
@@ -646,7 +712,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.gable_window}
-              onChange={(event) => onMedievalChange({ gable_window: event.target.checked })}
+              onChange={(event) => applyMedieval({ gable_window: event.target.checked })}
             />
             <span>山墙小窗</span>
           </label>
@@ -654,7 +720,7 @@ export function ControlPanel(props: Props) {
             <input
               type="checkbox"
               checked={form.medieval.door_dressing}
-              onChange={(event) => onMedievalChange({ door_dressing: event.target.checked })}
+              onChange={(event) => applyMedieval({ door_dressing: event.target.checked })}
             />
             <span>门旁花盆壁灯</span>
           </label>
@@ -664,6 +730,111 @@ export function ControlPanel(props: Props) {
         </p>
       </details>
 
+      <details className="group collapsible">
+        <summary>
+          <h3>中世纪街市</h3>
+          <span>展开</span>
+        </summary>
+        <div className="medieval-grid">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.slate_roof}
+              disabled={!gableRoof || medieval.collapsed || medieval.thatch_roof}
+              onChange={(event) => applyMedieval({ slate_roof: event.target.checked })}
+            />
+            <span>石板瓦曲面屋顶</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.water_wheel}
+              disabled={medieval.collapsed || medieval.lookout}
+              onChange={(event) => applyMedieval({ water_wheel: event.target.checked })}
+            />
+            <span>磨坊水车</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.shopfront}
+              disabled={medieval.collapsed || medieval.stable_bays || medieval.barn_door}
+              onChange={(event) => applyMedieval({ shopfront: event.target.checked })}
+            />
+            <span>街市橱窗</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.shop_board}
+              disabled={medieval.collapsed}
+              onChange={(event) => applyMedieval({ shop_board: event.target.checked })}
+            />
+            <span>门楣横招牌</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.stable_bays}
+              disabled={medieval.collapsed || medieval.shopfront || medieval.barn_door}
+              onChange={(event) => applyMedieval({ stable_bays: event.target.checked })}
+            />
+            <span>马厩拱形开间</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.barn_door}
+              disabled={medieval.collapsed || medieval.shopfront || medieval.stable_bays}
+              onChange={(event) => applyMedieval({ barn_door: event.target.checked })}
+            />
+            <span>谷仓大门</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.jetty_brackets}
+              disabled={medieval.collapsed}
+              onChange={(event) => applyMedieval({ jetty_brackets: event.target.checked })}
+            />
+            <span>挑楼托木</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.street_props}
+              disabled={medieval.collapsed}
+              onChange={(event) => applyMedieval({ street_props: event.target.checked })}
+            />
+            <span>街市杂物</span>
+          </label>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={medieval.ladder}
+              disabled={medieval.collapsed}
+              onChange={(event) => applyMedieval({ ladder: event.target.checked })}
+            />
+            <span>靠墙木梯</span>
+          </label>
+        </div>
+        {medieval.slate_roof && (
+          <Slider
+            label="屋面起翘"
+            value={Math.round(medieval.roof_curve * 100)}
+            min={0}
+            max={100}
+            step={5}
+            unit="%"
+            onChange={(value) => applyMedieval({ roof_curve: value / 100 })}
+          />
+        )}
+        <p className="hint">
+          石板瓦曲面屋顶仅双坡可用，与厚茅草屋顶互斥；磨坊水车与瞭望棚互斥；街市橱窗 / 马厩开间 / 谷仓大门三者只能选一种；挑楼托木随悬挑楼层生效。
+        </p>
+      </details>
+
+      </fieldset>
       <details className="group collapsible">
         <summary>
           <h3>门窗尺寸</h3>
@@ -715,6 +886,20 @@ export function ControlPanel(props: Props) {
           onChange={(value) => onOpeningsChange({ door_h: value })}
         />
       </details>
+
+      <div className="toggle-row">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={quickPreview}
+            onChange={(event) => onQuickPreviewChange(event.target.checked)}
+          />
+          <span>即时预览（纯前端体量）</span>
+        </label>
+      </div>
+      <p className="hint">
+        勾选后拖动参数会立即在前端拼出体量示意（毫秒级，不经过 Blender）；点「生成建筑」再生成带贴图与细节的正式模型。
+      </p>
 
       <div className="actions">
         <button type="button" className="btn primary" disabled={busy} onClick={onGenerate}>
